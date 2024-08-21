@@ -285,6 +285,7 @@ class Donations_Module {
             <label for="donation-amount">Total de la donación:</label>
             <input type="text" name="donation_amount" id="donation-amount" required aria-required="true" aria-label="Donation amount" class="donation-amount">
             <input type="hidden" name="button_id" value="<?php echo esc_attr($paypal_button_id); ?>">
+            <input type="hidden" name="donation_nonce" value="<?php echo wp_create_nonce('save_donation'); ?>"> <!-- Add this line -->
             <div id="paypal-button-container"></div>
             <div id="form-feedback" role="alert" style="display:none; color:red;"></div> <!-- Feedback container -->
         </form>
@@ -297,6 +298,7 @@ class Donations_Module {
             const fundingSources = <?php echo json_encode($paypal_button_funding_sources); ?>;
             const formFeedback = document.getElementById('form-feedback');
             
+            console.log('PayPal Buttons: Initializing');
             fundingSources.forEach(fundingSource => {
                 paypal.Buttons({
                     fundingSource: fundingSource,
@@ -329,9 +331,15 @@ class Donations_Module {
                             saveDonation(amount, details.id, details.payer.name.given_name, details.payer.email_address);
                         });
                     }
-                }).render('#paypal-button-container').catch(function(err) {
-                    document.getElementById('paypal-button-container').innerHTML = '<p>PayPal is currently unavailable. Please try again later.</p>';
+                }).render('#paypal-button-container').then(() => {
+                    console.log('PayPal Buttons: Rendered successfully');
+                }).catch(function(err) {
                     console.error('PayPal Button Render Error:', err);
+                    if (err && err.statusCode === 429) { // Corrected the logical AND
+                        document.getElementById('paypal-button-container').innerHTML = '<p>PayPal is currently unavailable due to rate limits. Please try again later.</p>';
+                    } else {
+                        document.getElementById('paypal-button-container').innerHTML = '<p>PayPal is currently unavailable. Please try again later.</p>';
+                    }
                 });
             });
 
@@ -397,6 +405,11 @@ class Donations_Module {
     }
 
     public static function save_donation() {
+        // Verify the nonce for security
+        if (!isset($_POST['donation_nonce']) || !wp_verify_nonce($_POST['donation_nonce'], 'save_donation')) {
+            wp_send_json(array('success' => false, 'message' => 'Nonce de seguridad no válido.'));
+        }
+
         if (!isset($_POST['donation_amount']) || empty($_POST['donation_amount'])) {
             wp_send_json(array('success' => false, 'message' => 'Cantidad de la donación no proporcionada.'));
         }
@@ -406,13 +419,16 @@ class Donations_Module {
         if (!is_numeric($_POST['donation_amount']) || $_POST['donation_amount'] <= 0) {
             wp_send_json(array('success' => false, 'message' => 'Cantidad de la donación inválida.'));
         }
+        if (!is_email($_POST['donor_email'])) {
+            wp_send_json(array('success' => false, 'message' => 'Correo electrónico no válido.'));
+        }
 
         global $wpdb;
         $table_name = $wpdb->prefix . 'donations';
-        $amount = sanitize_text_field($_POST['donation_amount']);
+        $amount = floatval($_POST['donation_amount']);
         $transaction_id = sanitize_text_field($_POST['transaction_id']);
         $donor_name = sanitize_text_field($_POST['donor_name']);
-        $donor_email = sanitize_text_field($_POST['donor_email']);
+        $donor_email = sanitize_email($_POST['donor_email']);
         $button_id = sanitize_text_field($_POST['button_id']);
 
         $wpdb->insert($table_name, array(
@@ -428,13 +444,25 @@ class Donations_Module {
     }
 
     public static function check_paypal_sdk_status() {
-        $response = wp_remote_get('https://www.paypal.com/sdk/js?client-id=test');
+        $response = wp_remote_get('https://www.paypal.com/sdk/js?client-id=test', array(
+            'timeout' => 10, // Set a timeout to avoid hanging indefinitely
+        ));
 
         if (is_wp_error($response)) {
+            error_log('PayPal SDK status check failed: ' . $response->get_error_message());
             return false; // PayPal SDK check failed, treat it as down
         }
 
         $status_code = wp_remote_retrieve_response_code($response);
+
+        if ($status_code === 429) {
+            error_log('PayPal SDK rate limit hit: ' . $status_code);
+            return false; // PayPal SDK rate limit reached, treat it as down
+        }
+
+        if ($status_code !== 200) {
+            error_log('PayPal SDK returned non-200 status: ' . $status_code);
+        }
 
         return $status_code === 200; // PayPal SDK is up if we get a 200 response
     }

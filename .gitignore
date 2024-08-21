@@ -1,0 +1,12 @@
+# Ignore WordPress core files
+/wp-admin/
+/wp-includes/
+/wp-config.php
+/.htaccess
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore any other files that shouldn't be versioned
+

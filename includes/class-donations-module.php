@@ -47,6 +47,15 @@ class Donations_Module {
         add_shortcode('donations_form', array(__CLASS__, 'donations_form_shortcode'));
         add_action('wp_ajax_save_donation', array(__CLASS__, 'save_donation'));
         add_action('wp_ajax_nopriv_save_donation', array(__CLASS__, 'save_donation'));
+        add_action('wp_enqueue_scripts', array(__CLASS__, 'enqueue_scripts'));
+    }
+
+    public static function enqueue_scripts() {
+        $paypal_client_id = esc_attr(get_option('paypal_client_id'));
+        $script_url = "https://www.paypal.com/sdk/js?client-id={$paypal_client_id}&currency=USD&components=buttons,funding-eligibility";
+        
+        wp_enqueue_script('paypal-sdk', $script_url, array(), null, true);
+        wp_add_inline_script('paypal-sdk', 'initializePayPalButtons();');
     }
 
     public static function add_admin_menu() {
@@ -269,22 +278,12 @@ class Donations_Module {
         $progress_bar_well_width = get_option('progress_bar_well_width', 100);
         $progress_bar_border_radius = get_option('progress_bar_border_radius', 0);
 
-        $paypal_client_id = get_option('paypal_client_id');
-        $paypal_button_id = get_option('paypal_button_id');
-        
-        $paypal_button_layout = get_option('paypal_button_layout', 'vertical');
-        $paypal_button_color = get_option('paypal_button_color', 'gold');
-        $paypal_button_shape = get_option('paypal_button_shape', 'pill');
-        $paypal_button_label = get_option('paypal_button_label', 'paypal');
-        $paypal_button_height = get_option('paypal_button_height', 40);
-        $paypal_button_funding_sources = get_option('paypal_button_funding_sources', ['paypal', 'credit']);
-
         ob_start();
         ?>
         <form id="donations-form" class="donations-form alignwide" onsubmit="return false;" aria-labelledby="donations-form-heading">
             <label for="donation-amount">Total de la donación:</label>
             <input type="text" name="donation_amount" id="donation-amount" required aria-required="true" aria-label="Donation amount" class="donation-amount">
-            <input type="hidden" name="button_id" value="<?php echo esc_attr($paypal_button_id); ?>">
+            <input type="hidden" name="button_id" value="<?php echo esc_attr(get_option('paypal_button_id')); ?>">
             <input type="hidden" name="donation_nonce" value="<?php echo wp_create_nonce('save_donation'); ?>">
             <div id="paypal-button-container"></div>
             <div id="form-feedback" role="alert" style="display:none; color:red;"></div>
@@ -293,55 +292,56 @@ class Donations_Module {
             <div id="progress-bar" style="width: <?php echo $progress; ?>%; background-color: <?php echo esc_attr($progress_bar_color); ?>; height: 100%; <?php echo ($progress >= 100) ? 'border-radius: ' . esc_attr($progress_bar_border_radius) . 'px;' : 'border-radius: ' . esc_attr($progress_bar_border_radius) . 'px 0 0 ' . esc_attr($progress_bar_border_radius) . 'px;'; ?>"></div>
         </div>
         <p id="donation-summary"><?php echo "$" . intval($current_total) . " de $" . $goal; ?></p>
-        <script src="https://www.paypal.com/sdk/js?client-id=<?php echo esc_attr($paypal_client_id); ?>&currency=USD&components=buttons,funding-eligibility"></script>
         <script>
-            const fundingSources = <?php echo json_encode($paypal_button_funding_sources); ?>;
-            const formFeedback = document.getElementById('form-feedback');
-            
-            console.log('PayPal Buttons: Initializing');
-            fundingSources.forEach(fundingSource => {
-                paypal.Buttons({
-                    fundingSource: fundingSource,
-                    style: {
-                        layout: '<?php echo esc_js($paypal_button_layout); ?>',
-                        color: '<?php echo esc_js($paypal_button_color); ?>',
-                        shape: '<?php echo esc_js($paypal_button_shape); ?>',
-                        label: '<?php echo esc_js($paypal_button_label); ?>',
-                        height: <?php echo esc_js($paypal_button_height); ?>
-                    },
-                    createOrder: function(data, actions) {
-                        var amount = document.getElementById('donation-amount').value;
-                        if (isNaN(amount) || amount <= 0) {
-                            formFeedback.style.display = 'block';
-                            formFeedback.textContent = 'Por favor, introduzca una cantidad válida mayor que cero.';
-                            return false;
+            function initializePayPalButtons() {
+                const fundingSources = <?php echo json_encode(get_option('paypal_button_funding_sources', ['paypal', 'credit'])); ?>;
+                const formFeedback = document.getElementById('form-feedback');
+                
+                console.log('PayPal Buttons: Initializing');
+                fundingSources.forEach(fundingSource => {
+                    paypal.Buttons({
+                        fundingSource: fundingSource,
+                        style: {
+                            layout: '<?php echo esc_js(get_option('paypal_button_layout', 'vertical')); ?>',
+                            color: '<?php echo esc_js(get_option('paypal_button_color', 'gold')); ?>',
+                            shape: '<?php echo esc_js(get_option('paypal_button_shape', 'pill')); ?>',
+                            label: '<?php echo esc_js(get_option('paypal_button_label', 'paypal')); ?>',
+                            height: <?php echo esc_js(get_option('paypal_button_height', 40)); ?>
+                        },
+                        createOrder: function(data, actions) {
+                            var amount = document.getElementById('donation-amount').value;
+                            if (isNaN(amount) || amount <= 0) {
+                                formFeedback.style.display = 'block';
+                                formFeedback.textContent = 'Por favor, introduzca una cantidad válida mayor que cero.';
+                                return false;
+                            }
+                            formFeedback.style.display = 'none';
+                            return actions.order.create({
+                                purchase_units: [{
+                                    amount: {
+                                        value: amount
+                                    }
+                                }]
+                            });
+                        },
+                        onApprove: function(data, actions) {
+                            return actions.order.capture().then(function(details) {
+                                var amount = parseFloat(details.purchase_units[0].amount.value);
+                                saveDonation(amount, details.id, details.payer.name.given_name, details.payer.email_address);
+                            });
                         }
-                        formFeedback.style.display = 'none';
-                        return actions.order.create({
-                            purchase_units: [{
-                                amount: {
-                                    value: amount
-                                }
-                            }]
-                        });
-                    },
-                    onApprove: function(data, actions) {
-                        return actions.order.capture().then(function(details) {
-                            var amount = parseFloat(details.purchase_units[0].amount.value);
-                            saveDonation(amount, details.id, details.payer.name.given_name, details.payer.email_address);
-                        });
-                    }
-                }).render('#paypal-button-container').then(() => {
-                    console.log('PayPal Buttons: Rendered successfully');
-                }).catch(function(err) {
-                    console.error('PayPal Button Render Error:', err);
-                    if (err && err.statusCode === 429) {
-                        document.getElementById('paypal-button-container').innerHTML = '<p>PayPal is currently unavailable due to rate limits. Please try again later.</p>';
-                    } else {
-                        document.getElementById('paypal-button-container').innerHTML = '<p>PayPal is currently unavailable. Please try again later.</p>';
-                    }
+                    }).render('#paypal-button-container').then(() => {
+                        console.log('PayPal Buttons: Rendered successfully');
+                    }).catch(function(err) {
+                        console.error('PayPal Button Render Error:', err);
+                        if (err && err.statusCode === 429) {
+                            document.getElementById('paypal-button-container').innerHTML = '<p>PayPal is currently unavailable due to rate limits. Please try again later.</p>';
+                        } else {
+                            document.getElementById('paypal-button-container').innerHTML = '<p>PayPal is currently unavailable. Please try again later.</p>';
+                        }
+                    });
                 });
-            });
+            }
 
             function saveDonation(amount, transaction_id, donor_name, donor_email) {
                 var formData = new FormData();
@@ -350,7 +350,7 @@ class Donations_Module {
                 formData.append('transaction_id', transaction_id);
                 formData.append('donor_name', donor_name);
                 formData.append('donor_email', donor_email);
-                formData.append('button_id', '<?php echo esc_js($paypal_button_id); ?>');
+                formData.append('button_id', '<?php echo esc_js(get_option('paypal_button_id')); ?>');
 
                 fetch('<?php echo esc_url(admin_url('admin-ajax.php')); ?>', {
                     method: 'POST',

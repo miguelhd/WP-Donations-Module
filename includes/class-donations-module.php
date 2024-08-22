@@ -259,7 +259,7 @@ class Donations_Module {
     }
 
     public static function donations_form_shortcode() {
-        $goal = intval(get_option('donations_goal', 0)); // Ensuring goal is an integer
+        $goal = intval(get_option('donations_goal', 0));
         $current_total = self::get_current_donations_total();
         $progress = $goal > 0 ? ($current_total / $goal) * 100 : 0;
 
@@ -267,7 +267,8 @@ class Donations_Module {
         $progress_bar_height = get_option('progress_bar_height', 20);
         $progress_bar_well_color = get_option('progress_bar_well_color', '#eeeeee');
         $progress_bar_well_width = get_option('progress_bar_well_width', 100);
-        $progress_bar_border_radius = get_option('progress_bar_border_radius', 0); // New option for rounded corners
+        $progress_bar_border_radius = get_option('progress_bar_border_radius', 0);
+
         $paypal_client_id = get_option('paypal_client_id');
         $paypal_button_id = get_option('paypal_button_id');
         
@@ -280,14 +281,13 @@ class Donations_Module {
 
         ob_start();
         ?>
-        <form id="donations-form" class="donations-form" onsubmit="return false;" aria-labelledby="donations-form-heading">
-            <h2 id="donations-form-heading">Formulario de donaciones</h2>
+        <form id="donations-form" class="donations-form alignwide" onsubmit="return false;" aria-labelledby="donations-form-heading">
             <label for="donation-amount">Total de la donación:</label>
             <input type="text" name="donation_amount" id="donation-amount" required aria-required="true" aria-label="Donation amount" class="donation-amount">
             <input type="hidden" name="button_id" value="<?php echo esc_attr($paypal_button_id); ?>">
-            <input type="hidden" name="donation_nonce" value="<?php echo wp_create_nonce('save_donation'); ?>"> <!-- Add this line -->
+            <input type="hidden" name="donation_nonce" value="<?php echo wp_create_nonce('save_donation'); ?>">
             <div id="paypal-button-container"></div>
-            <div id="form-feedback" role="alert" style="display:none; color:red;"></div> <!-- Feedback container -->
+            <div id="form-feedback" role="alert" style="display:none; color:red;"></div>
         </form>
         <div id="donation-progress" style="background-color: <?php echo esc_attr($progress_bar_well_color); ?>; width: <?php echo esc_attr($progress_bar_well_width); ?>%; height: <?php echo esc_attr($progress_bar_height); ?>px; max-width: 100%; border-radius: <?php echo esc_attr($progress_bar_border_radius); ?>px;" role="progressbar" aria-valuenow="<?php echo $progress; ?>" aria-valuemin="0" aria-valuemax="100">
             <div id="progress-bar" style="width: <?php echo $progress; ?>%; background-color: <?php echo esc_attr($progress_bar_color); ?>; height: 100%; <?php echo ($progress >= 100) ? 'border-radius: ' . esc_attr($progress_bar_border_radius) . 'px;' : 'border-radius: ' . esc_attr($progress_bar_border_radius) . 'px 0 0 ' . esc_attr($progress_bar_border_radius) . 'px;'; ?>"></div>
@@ -314,9 +314,9 @@ class Donations_Module {
                         if (isNaN(amount) || amount <= 0) {
                             formFeedback.style.display = 'block';
                             formFeedback.textContent = 'Por favor, introduzca una cantidad válida mayor que cero.';
-                            return false; // Prevent form submission
+                            return false;
                         }
-                        formFeedback.style.display = 'none'; // Hide feedback if valid
+                        formFeedback.style.display = 'none';
                         return actions.order.create({
                             purchase_units: [{
                                 amount: {
@@ -335,7 +335,7 @@ class Donations_Module {
                     console.log('PayPal Buttons: Rendered successfully');
                 }).catch(function(err) {
                     console.error('PayPal Button Render Error:', err);
-                    if (err && err.statusCode === 429) { // Corrected the logical AND
+                    if (err && err.statusCode === 429) {
                         document.getElementById('paypal-button-container').innerHTML = '<p>PayPal is currently unavailable due to rate limits. Please try again later.</p>';
                     } else {
                         document.getElementById('paypal-button-container').innerHTML = '<p>PayPal is currently unavailable. Please try again later.</p>';
@@ -370,27 +370,87 @@ class Donations_Module {
             }
         </script>
         <style>
+            :root {
+                --donation-form-bg: #ffffff;
+                --donation-form-color: #333333;
+            }
+
             .donations-form {
                 max-width: 100%;
                 padding: 10px;
                 box-sizing: border-box;
+                background-color: var(--donation-form-bg);
+                color: var(--donation-form-color);
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+                align-items: center;
             }
 
-            .donations-form input, .donations-form button {
+            .donations-form label {
+                align-self: flex-start;
+                font-weight: bold;
+                margin-bottom: 5px;
+            }
+
+            .donations-form input[type="text"] {
                 width: 100%;
-                max-width: 100%;
+                max-width: 400px;
                 padding: 10px;
-                margin-bottom: 10px;
+                margin-bottom: 20px;
                 font-size: 1.2em;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                box-sizing: border-box;
             }
 
             #paypal-button-container {
                 max-width: 100%;
                 text-align: center;
+                margin-bottom: 20px;
+            }
+
+            #donation-progress {
+                width: 100%;
+                max-width: 400px;
+                background-color: <?php echo esc_attr($progress_bar_well_color); ?>;
+                height: <?php echo esc_attr($progress_bar_height); ?>px;
+                border-radius: <?php echo esc_attr($progress_bar_border_radius); ?>px;
+                overflow: hidden;
             }
 
             #progress-bar {
+                width: <?php echo $progress; ?>%;
+                background-color: <?php echo esc_attr($progress_bar_color); ?>;
+                height: 100%;
                 transition: width 0.5s ease-in-out;
+                border-radius: <?php echo ($progress >= 100) ? esc_attr($progress_bar_border_radius) . 'px' : esc_attr($progress_bar_border_radius) . 'px 0 0 ' . esc_attr($progress_bar_border_radius) . 'px'; ?>;
+            }
+
+            #donation-summary {
+                font-size: 1.2em;
+                font-weight: bold;
+                text-align: center;
+            }
+
+            .alignleft {
+                float: left;
+                margin-right: 20px;
+            }
+
+            .alignright {
+                float: right;
+                margin-left: 20px;
+            }
+
+            .aligncenter {
+                display: block;
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            .alignwide {
+                width: 100%;
             }
         </style>
         <?php
@@ -401,11 +461,10 @@ class Donations_Module {
         global $wpdb;
         $table_name = $wpdb->prefix . 'donations';
         $result = $wpdb->get_var("SELECT SUM(amount) FROM $table_name");
-        return $result ? intval($result) : 0; // Ensure the result is an integer
+        return $result ? intval($result) : 0;
     }
 
     public static function save_donation() {
-        // Verify the nonce for security
         if (!isset($_POST['donation_nonce']) || !wp_verify_nonce($_POST['donation_nonce'], 'save_donation')) {
             wp_send_json(array('success' => false, 'message' => 'Nonce de seguridad no válido.'));
         }
@@ -445,32 +504,30 @@ class Donations_Module {
 
     public static function check_paypal_sdk_status() {
         $response = wp_remote_get('https://www.paypal.com/sdk/js?client-id=test', array(
-            'timeout' => 10, // Set a timeout to avoid hanging indefinitely
+            'timeout' => 10,
         ));
 
         if (is_wp_error($response)) {
             error_log('PayPal SDK status check failed: ' . $response->get_error_message());
-            return false; // PayPal SDK check failed, treat it as down
+            return false;
         }
 
         $status_code = wp_remote_retrieve_response_code($response);
 
         if ($status_code === 429) {
             error_log('PayPal SDK rate limit hit: ' . $status_code);
-            return false; // PayPal SDK rate limit reached, treat it as down
+            return false;
         }
 
         if ($status_code !== 200) {
             error_log('PayPal SDK returned non-200 status: ' . $status_code);
         }
 
-        return $status_code === 200; // PayPal SDK is up if we get a 200 response
+        return $status_code === 200;
     }
 }
 
-// Instanciar la clase
 new Donations_Module();
 
-// Registrar hooks de activación y desactivación
 register_activation_hook(__FILE__, array('Donations_Module', 'activate'));
 register_deactivation_hook(__FILE__, array('Donations_Module', 'deactivate'));

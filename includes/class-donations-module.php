@@ -55,6 +55,7 @@ class Donations_Module {
         $script_url = "https://www.paypal.com/sdk/js?client-id={$paypal_client_id}&currency=USD&components=buttons,funding-eligibility";
         
         wp_enqueue_script('paypal-sdk', $script_url, array(), null, true);
+
         wp_add_inline_script('paypal-sdk', 'initializePayPalButtons();');
     }
 
@@ -351,11 +352,13 @@ class Donations_Module {
                 formData.append('donor_name', donor_name);
                 formData.append('donor_email', donor_email);
                 formData.append('button_id', '<?php echo esc_js(get_option('paypal_button_id')); ?>');
+                formData.append('donation_nonce', '<?php echo wp_create_nonce('save_donation'); ?>');
 
                 fetch('<?php echo esc_url(admin_url('admin-ajax.php')); ?>', {
                     method: 'POST',
                     body: formData
                 }).then(response => response.json()).then(data => {
+                    console.log(data);
                     if (data.success) {
                         var progressBar = document.getElementById('progress-bar');
                         var currentTotal = data.current_total;
@@ -366,7 +369,10 @@ class Donations_Module {
                     } else {
                         alert('Error al guardar la donación.');
                     }
-                }).catch(error => console.error('Error:', error));
+                }).catch(error => {
+                    console.error('Error:', error);
+                    alert('Hubo un error al procesar su donación.');
+                });
             }
         </script>
         <style>
@@ -465,20 +471,34 @@ class Donations_Module {
     }
 
     public static function save_donation() {
-        if (!isset($_POST['donation_nonce']) || !wp_verify_nonce($_POST['donation_nonce'], 'save_donation')) {
+        error_log("save_donation function triggered");
+
+        if (!isset($_POST['donation_nonce'])) {
+            error_log("Nonce not received");
+            wp_send_json(array('success' => false, 'message' => 'Nonce not provided.'));
+        }
+
+        error_log("Nonce received: " . $_POST['donation_nonce']);
+
+        if (!wp_verify_nonce($_POST['donation_nonce'], 'save_donation')) {
+            error_log("Nonce verification failed");
             wp_send_json(array('success' => false, 'message' => 'Nonce de seguridad no válido.'));
         }
 
         if (!isset($_POST['donation_amount']) || empty($_POST['donation_amount'])) {
+            error_log("Donation amount not provided");
             wp_send_json(array('success' => false, 'message' => 'Cantidad de la donación no proporcionada.'));
         }
         if (!isset($_POST['transaction_id']) || empty($_POST['transaction_id'])) {
+            error_log("Transaction ID not provided");
             wp_send_json(array('success' => false, 'message' => 'ID de la transacción no proporcionada.'));
         }
         if (!is_numeric($_POST['donation_amount']) || $_POST['donation_amount'] <= 0) {
+            error_log("Invalid donation amount");
             wp_send_json(array('success' => false, 'message' => 'Cantidad de la donación inválida.'));
         }
         if (!is_email($_POST['donor_email'])) {
+            error_log("Invalid donor email");
             wp_send_json(array('success' => false, 'message' => 'Correo electrónico no válido.'));
         }
 
@@ -490,13 +510,20 @@ class Donations_Module {
         $donor_email = sanitize_email($_POST['donor_email']);
         $button_id = sanitize_text_field($_POST['button_id']);
 
-        $wpdb->insert($table_name, array(
+        error_log("Attempting to insert donation: amount=$amount, transaction_id=$transaction_id, donor_name=$donor_name, donor_email=$donor_email, button_id=$button_id");
+
+        $inserted = $wpdb->insert($table_name, array(
             'amount' => $amount,
             'transaction_id' => $transaction_id,
             'donor_name' => $donor_name,
             'donor_email' => $donor_email,
             'button_id' => $button_id
         ));
+
+        if ($inserted === false) {
+            error_log("Error inserting donation: " . $wpdb->last_error);
+            wp_send_json(array('success' => false, 'message' => 'Error al guardar la donación en la base de datos.'));
+        }
 
         $current_total = self::get_current_donations_total();
         wp_send_json(array('success' => true, 'current_total' => $current_total));

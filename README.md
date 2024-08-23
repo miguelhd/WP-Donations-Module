@@ -1,3 +1,4 @@
+
 # Donations Module
 
 **Contributors:** miguelhd  
@@ -15,9 +16,17 @@ A plugin to accept donations via PayPal/Braintree for non-profits.
 
 The Donations Module Plugin allows non-profit organizations to accept donations via PayPal on their WordPress site. It includes features such as real-time donation tracking, secure nonce verification for donation processing, and detailed error logging for troubleshooting.
 
+### New Features:
+- **Donation Logging:** Automatically log and track donations in the database.
+- **Real-Time Donation Metrics:** The plugin now updates the total amount raised and the number of donations in real-time.
+- **Security:** Enhanced security with nonce verification to ensure only legitimate donations are processed.
+- **Error Logging:** Detailed logging of errors for easier troubleshooting and debugging.
+- **Updated JSON Responses:** Enhanced the structure of JSON responses to include the current total donations.
+- **Improved Error Handling:** Refined error handling for nonce verification and database insertion.
+
 ## Features
 
-- Accept donations via PayPal with customizable buttons.
+- Accept donations via PayPal.
 - Real-time donation progress tracking.
 - Secure nonce verification to prevent unauthorized submissions.
 - Detailed error logging for easier troubleshooting.
@@ -25,38 +34,48 @@ The Donations Module Plugin allows non-profit organizations to accept donations 
 
 ## Installation
 
-1. Upload the `donations-module` directory to the `/wp-content/plugins/` directory.
-2. Activate the plugin through the `Plugins` menu in WordPress.
+1. Upload the `donations-module` folder to the `/wp-content/plugins/` directory.
+2. Activate the plugin through the 'Plugins' menu in WordPress.
+3. Use the `[donations_form]` shortcode to display the donation form on your site.
+
+## Usage
+
+### Shortcode `[donations_form]`
+
+Place this shortcode on any page or post where you want to display the donation form.
+
+### Handling Donations
+
+When a user submits a donation:
+- The plugin validates and sanitizes the input data.
+- It checks for a valid nonce to ensure the request is secure.
+- The donation data (transaction ID and amount) is stored in the database.
+- Real-time metrics (total amount raised and number of donations) are updated.
+- The plugin returns a JSON response indicating the success or failure of the donation.
+
+### Error Logging
+
+- The plugin logs every attempt to trigger the `save_donation` function, including failed nonce verifications and database insertion errors.
+- Check your WordPress debug log (`wp-content/debug.log`) to review error messages.
 
 ## Frequently Asked Questions
 
-**How do I configure the plugin?**
+### How do I ensure my donation data is secure?
 
-Navigate to the Donations Module settings page from the WordPress admin menu. Here you can set your PayPal Client ID, customize the donation button, and configure the donation progress bar.
-
-**How do I display the donation form?**
-
-Use the `[donations_form]` shortcode on any page or post.
-
-**What happens if there's an error during the donation process?**
-
-The plugin includes detailed error logging, which can be accessed in the `debug.log` file within your WordPress installation. This will help you identify and resolve any issues.
+The plugin uses WordPress's built-in nonce verification to protect against unauthorized submissions. Always ensure that your site is running the latest version of WordPress for the best security.
 
 ## Changelog
 
 ### 1.1.0
-- Added PayPal button integration with `wp_enqueue_script` for proper loading.
-- Implemented nonce verification in the `save_donation` function to enhance security.
-- Added debug logging to track the donation process and troubleshoot issues.
-- Updated donation progress bar and summary to reflect real-time donation totals.
+- Added donation logging and real-time metrics.
+- Improved security with nonce verification.
+- Enhanced error logging.
+- Updated JSON responses to include current total donations.
+- Improved error handling for nonce verification and database insertion.
 
 ### 1.0.0
-- Initial release
+- Initial release.
 
-## Upgrade Notice
+## License
 
-### 1.1.0
-- Critical security and functionality improvements. Please update to ensure your site remains secure and functional.
-
-### 1.0.0
-- Initial release
+This plugin is licensed under the GPLv2 or later. See the LICENSE file for more details.

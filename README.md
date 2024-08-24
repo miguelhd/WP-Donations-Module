@@ -23,6 +23,7 @@ The Donations Module Plugin allows non-profit organizations to accept donations 
 - **Error Logging:** Detailed logging of errors for easier troubleshooting and debugging.
 - **Updated JSON Responses:** Enhanced the structure of JSON responses to include the current total donations.
 - **Improved Error Handling:** Refined error handling for nonce verification and database insertion.
+- **Changed SDK:** Transitioned from the PayPal general JavaScript SDK to the Donate SDK.
 
 ## Features
 

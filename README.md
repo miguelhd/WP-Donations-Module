@@ -1,4 +1,3 @@
-
 # Donations Module
 
 **Contributors:** miguelhd  
@@ -6,7 +5,7 @@
 **Tags:** donations, PayPal, non-profit  
 **Requires at least:** 5.0  
 **Tested up to:** 5.8  
-**Stable tag:** 1.1.0  
+**Stable tag:** 1.2.0  
 **License:** GPLv2 or later  
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html  
 
@@ -16,14 +15,11 @@ A plugin to accept donations via PayPal/Braintree for non-profits.
 
 The Donations Module Plugin allows non-profit organizations to accept donations via PayPal on their WordPress site. It includes features such as real-time donation tracking, secure nonce verification for donation processing, and detailed error logging for troubleshooting.
 
-### New Features:
-- **Donation Logging:** Automatically log and track donations in the database.
-- **Real-Time Donation Metrics:** The plugin now updates the total amount raised and the number of donations in real-time.
-- **Security:** Enhanced security with nonce verification to ensure only legitimate donations are processed.
-- **Error Logging:** Detailed logging of errors for easier troubleshooting and debugging.
-- **Updated JSON Responses:** Enhanced the structure of JSON responses to include the current total donations.
-- **Improved Error Handling:** Refined error handling for nonce verification and database insertion.
-- **Changed SDK:** Transitioned from the PayPal general JavaScript SDK to the Donate SDK.
+### New Features in 1.2.0:
+- **Code Refactoring:** Encapsulated the plugin functionality within a class structure for better organization, maintainability, and extensibility.
+- **Settings Link:** Added a "Settings" link on the Plugins page for easier access to the plugin configuration.
+- **Improved Code Organization:** Moved procedural code into a well-structured class to streamline plugin management.
+- **Preserved Functionality:** All original features, including PayPal integration, real-time metrics, and secure donation processing, have been preserved and enhanced.
 
 ## Features
 
@@ -32,6 +28,7 @@ The Donations Module Plugin allows non-profit organizations to accept donations 
 - Secure nonce verification to prevent unauthorized submissions.
 - Detailed error logging for easier troubleshooting.
 - Easy integration using the `[donations_form]` shortcode.
+- Class-based architecture for better maintainability.
 
 ## Installation
 
@@ -66,6 +63,12 @@ When a user submits a donation:
 The plugin uses WordPress's built-in nonce verification to protect against unauthorized submissions. Always ensure that your site is running the latest version of WordPress for the best security.
 
 ## Changelog
+
+### 1.2.0
+- Refactored the plugin to encapsulate functionality within a class structure.
+- Added a "Settings" link on the Plugins page for easier configuration access.
+- Improved code organization for better maintainability and extensibility.
+- Preserved all existing features and enhanced security and error logging mechanisms.
 
 ### 1.1.0
 - Added donation logging and real-time metrics.

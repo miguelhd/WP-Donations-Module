@@ -58,24 +58,19 @@ class Donations_Module
         ]);
         add_action("wp_enqueue_scripts", [
             __CLASS__,
-            "conditionally_enqueue_scripts",
+            "enqueue_paypal_sdk",
         ]);
     }
 
-    public static function conditionally_enqueue_scripts()
+    public static function enqueue_paypal_sdk()
     {
-        if (
-            is_singular() &&
-            has_shortcode(get_post()->post_content, "donations_form")
-        ) {
-            wp_enqueue_script(
-                "paypal-donate-sdk",
-                "https://www.paypalobjects.com/donate/sdk/donate-sdk.js",
-                [],
-                null,
-                true
-            );
-        }
+        wp_enqueue_script(
+            'paypal-donate-sdk',
+            'https://www.paypalobjects.com/donate/sdk/donate-sdk.js',
+            [],
+            null,
+            true
+        );
     }
 
     public static function add_admin_menu()
@@ -149,146 +144,147 @@ class Donations_Module
     }
 
     public static function settings_page()
-{
-    // Check if settings were saved and display a success message
-    if (isset($_GET['settings-updated']) && $_GET['settings-updated'] == 'true') {
-        add_settings_error(
-            'donations_module_messages',
-            'donations_module_message',
-            __('Configuración guardada correctamente.', 'donations-module'),
-            'updated'
-        );
+    {
+        // Check if settings were saved and display a success message
+        if (isset($_GET['settings-updated']) && $_GET['settings-updated'] == 'true') {
+            add_settings_error(
+                'donations_module_messages',
+                'donations_module_message',
+                __('Configuración guardada correctamente.', 'donations-module'),
+                'updated'
+            );
+        }
+
+        // Display any error messages that occurred
+        settings_errors('donations_module_messages');
+        
+        ?>
+        <div class="wrap">
+            <h1>Configuración del módulo de donaciones</h1>
+            <form method="post" action="options.php">
+                <?php
+                settings_fields("donations_module");
+                do_settings_sections("donations_module");
+                ?>
+
+                <!-- General Settings Section -->
+                <h2 class="section-title">Configuración General</h2>
+                <hr class="section-separator" />
+                <table class="form-table">
+                    <tr valign="top">
+                        <th scope="row"><label for="donations_goal">Meta de Donaciones</label></th>
+                        <td><input type="number" id="donations_goal" name="donations_goal" value="<?php echo esc_attr(intval(get_option("donations_goal"))); ?>" placeholder="1000" class="regular-text" /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="paypal_hosted_button_id">PayPal Button ID</label></th>
+                        <td><input type="text" id="paypal_hosted_button_id" name="paypal_hosted_button_id" value="<?php echo esc_attr(get_option("paypal_hosted_button_id")); ?>" placeholder="ABC1DEFGHIJ2K" class="regular-text" /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="cta_paragraph">Texto para Incentivar Donaciones</label></th>
+                        <td><textarea id="cta_paragraph" name="cta_paragraph" rows="5" cols="50" placeholder="¡Ayúdanos a alcanzar nuestra meta! Dona ahora a través de PayPal y marca la diferencia." class="large-text"><?php echo esc_textarea(get_option("cta_paragraph")); ?></textarea></td>
+                    </tr>
+                </table>
+
+                <!-- Display Settings Section -->
+                <h2 class="section-title">Configuración de Pantalla</h2>
+                <hr class="section-separator" />
+                <table class="form-table">
+                    <tr valign="top">
+                        <th scope="row"><label for="show_amount_raised">Mostrar Monto Recaudado</label></th>
+                        <td><input type="checkbox" id="show_amount_raised" name="show_amount_raised" value="1" <?php checked(get_option("show_amount_raised"), "1"); ?> /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="show_percentage_of_goal">Mostrar Porcentaje de la Meta</label></th>
+                        <td><input type="checkbox" id="show_percentage_of_goal" name="show_percentage_of_goal" value="1" <?php checked(get_option("show_percentage_of_goal"), "1"); ?> /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="show_number_of_donations">Mostrar Número de Donaciones</label></th>
+                        <td><input type="checkbox" id="show_number_of_donations" name="show_number_of_donations" value="1" <?php checked(get_option("show_number_of_donations"), "1"); ?> /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="show_cta_paragraph">Mostrar Texto para Incentivar</label></th>
+                        <td><input type="checkbox" id="show_cta_paragraph" name="show_cta_paragraph" value="1" <?php checked(get_option("show_cta_paragraph"), "1"); ?> /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="content_alignment">Alinear Contenido</label></th>
+                        <td>
+                            <select id="content_alignment" name="content_alignment" class="regular-text">
+                                <option value="left" <?php selected(get_option("content_alignment"), "left"); ?>>Izquierda</option>
+                                <option value="center" <?php selected(get_option("content_alignment"), "center"); ?>>Centro</option>
+                                <option value="right" <?php selected(get_option("content_alignment"), "right"); ?>>Derecha</option>
+                            </select>
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Progress Bar Customization Section -->
+                <h2 class="section-title">Personalización de la Barra de Progreso</h2>
+                <hr class="section-separator" />
+                <table class="form-table">
+                    <!-- Color Adjustments (moved to the top) -->
+                    <tr valign="top">
+                        <th scope="row"><label for="progress_bar_color">Color de la Barra de Progreso</label></th>
+                        <td><input type="color" id="progress_bar_color" name="progress_bar_color" value="<?php echo esc_attr(get_option("progress_bar_color", "#00ff00")); ?>" placeholder="#00ff00" class="large-color-picker" /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="progress_bar_well_color">Color del Fondo de la Barra de Progreso</label></th>
+                        <td><input type="color" id="progress_bar_well_color" name="progress_bar_well_color" value="<?php echo esc_attr(get_option("progress_bar_well_color", "#eeeeee")); ?>" placeholder="#eeeeee" class="large-color-picker" /></td>
+                    </tr>
+
+                    <!-- Sizing Adjustments -->
+                    <tr valign="top">
+                        <th scope="row"><label for="progress_bar_height">Altura de la Barra de Progreso (px)</label></th>
+                        <td><input type="number" id="progress_bar_height" name="progress_bar_height" value="<?php echo esc_attr(get_option("progress_bar_height", 20)); ?>" placeholder="20" class="small-text" /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="progress_bar_well_width">Ancho del Fondo de la Barra de Progreso (%)</label></th>
+                        <td><input type="number" id="progress_bar_well_width" name="progress_bar_well_width" value="<?php echo esc_attr(get_option("progress_bar_well_width", 100)); ?>" placeholder="100" class="small-text" /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="progress_bar_border_radius">Esquinas Redondeadas de la Barra de Progreso (px)</label></th>
+                        <td><input type="number" id="progress_bar_border_radius" name="progress_bar_border_radius" value="<?php echo esc_attr(get_option("progress_bar_border_radius", 0)); ?>" placeholder="0" class="small-text" /></td>
+                    </tr>
+                </table>
+
+                <?php submit_button('Guardar Cambios', 'primary large'); ?>
+            </form>
+        </div>
+        <style>
+            .form-table th {
+                font-weight: normal;
+                width: 240px;
+                padding-bottom: 5px;
+                padding-top: 5px;
+            }
+            .form-table td {
+                padding-bottom: 5px;
+                padding-top: 5px;
+            }
+            .section-title {
+                margin-top: 40px; /* Increased space between sections */
+            }
+            .section-separator {
+                margin-top: 10px; /* Small space between title and separator */
+                margin-bottom: 20px; /* Consistent space between separator and section content */
+            }
+            .form-table td input[type="text"], 
+            .form-table td input[type="number"], 
+            .form-table td textarea, 
+            .form-table td select {
+                width: 100%;
+                max-width: 400px;
+            }
+            .large-color-picker {
+                width: 70px;
+                height: 30px;
+                padding: 0;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+            }
+        </style>
+        <?php
     }
 
-    // Display any error messages that occurred
-    settings_errors('donations_module_messages');
-    
-    ?>
-    <div class="wrap">
-        <h1>Configuración del módulo de donaciones</h1>
-        <form method="post" action="options.php">
-            <?php
-            settings_fields("donations_module");
-            do_settings_sections("donations_module");
-            ?>
-
-            <!-- General Settings Section -->
-            <h2 class="section-title">Configuración General</h2>
-            <hr class="section-separator" />
-            <table class="form-table">
-                <tr valign="top">
-                    <th scope="row"><label for="donations_goal">Meta de Donaciones</label></th>
-                    <td><input type="number" id="donations_goal" name="donations_goal" value="<?php echo esc_attr(intval(get_option("donations_goal"))); ?>" placeholder="1000" class="regular-text" /></td>
-                </tr>
-                <tr valign="top">
-                    <th scope="row"><label for="paypal_hosted_button_id">PayPal Button ID</label></th>
-                    <td><input type="text" id="paypal_hosted_button_id" name="paypal_hosted_button_id" value="<?php echo esc_attr(get_option("paypal_hosted_button_id")); ?>" placeholder="ABC1DEFGHIJ2K" class="regular-text" /></td>
-                </tr>
-                <tr valign="top">
-                    <th scope="row"><label for="cta_paragraph">Texto para Incentivar Donaciones</label></th>
-                    <td><textarea id="cta_paragraph" name="cta_paragraph" rows="5" cols="50" placeholder="¡Ayúdanos a alcanzar nuestra meta! Dona ahora a través de PayPal y marca la diferencia." class="large-text"><?php echo esc_textarea(get_option("cta_paragraph")); ?></textarea></td>
-                </tr>
-            </table>
-
-            <!-- Display Settings Section -->
-            <h2 class="section-title">Configuración de Pantalla</h2>
-            <hr class="section-separator" />
-            <table class="form-table">
-                <tr valign="top">
-                    <th scope="row"><label for="show_amount_raised">Mostrar Monto Recaudado</label></th>
-                    <td><input type="checkbox" id="show_amount_raised" name="show_amount_raised" value="1" <?php checked(get_option("show_amount_raised"), "1"); ?> /></td>
-                </tr>
-                <tr valign="top">
-                    <th scope="row"><label for="show_percentage_of_goal">Mostrar Porcentaje de la Meta</label></th>
-                    <td><input type="checkbox" id="show_percentage_of_goal" name="show_percentage_of_goal" value="1" <?php checked(get_option("show_percentage_of_goal"), "1"); ?> /></td>
-                </tr>
-                <tr valign="top">
-                    <th scope="row"><label for="show_number_of_donations">Mostrar Número de Donaciones</label></th>
-                    <td><input type="checkbox" id="show_number_of_donations" name="show_number_of_donations" value="1" <?php checked(get_option("show_number_of_donations"), "1"); ?> /></td>
-                </tr>
-                <tr valign="top">
-                    <th scope="row"><label for="show_cta_paragraph">Mostrar Texto para Incentivar</label></th>
-                    <td><input type="checkbox" id="show_cta_paragraph" name="show_cta_paragraph" value="1" <?php checked(get_option("show_cta_paragraph"), "1"); ?> /></td>
-                </tr>
-                <tr valign="top">
-                    <th scope="row"><label for="content_alignment">Alinear Contenido</label></th>
-                    <td>
-                        <select id="content_alignment" name="content_alignment" class="regular-text">
-                            <option value="left" <?php selected(get_option("content_alignment"), "left"); ?>>Izquierda</option>
-                            <option value="center" <?php selected(get_option("content_alignment"), "center"); ?>>Centro</option>
-                            <option value="right" <?php selected(get_option("content_alignment"), "right"); ?>>Derecha</option>
-                        </select>
-                    </td>
-                </tr>
-            </table>
-
-            <!-- Progress Bar Customization Section -->
-            <h2 class="section-title">Personalización de la Barra de Progreso</h2>
-            <hr class="section-separator" />
-            <table class="form-table">
-                <!-- Color Adjustments (moved to the top) -->
-                <tr valign="top">
-                    <th scope="row"><label for="progress_bar_color">Color de la Barra de Progreso</label></th>
-                    <td><input type="color" id="progress_bar_color" name="progress_bar_color" value="<?php echo esc_attr(get_option("progress_bar_color", "#00ff00")); ?>" placeholder="#00ff00" class="large-color-picker" /></td>
-                </tr>
-                <tr valign="top">
-                    <th scope="row"><label for="progress_bar_well_color">Color del Fondo de la Barra de Progreso</label></th>
-                    <td><input type="color" id="progress_bar_well_color" name="progress_bar_well_color" value="<?php echo esc_attr(get_option("progress_bar_well_color", "#eeeeee")); ?>" placeholder="#eeeeee" class="large-color-picker" /></td>
-                </tr>
-
-                <!-- Sizing Adjustments -->
-                <tr valign="top">
-                    <th scope="row"><label for="progress_bar_height">Altura de la Barra de Progreso (px)</label></th>
-                    <td><input type="number" id="progress_bar_height" name="progress_bar_height" value="<?php echo esc_attr(get_option("progress_bar_height", 20)); ?>" placeholder="20" class="small-text" /></td>
-                </tr>
-                <tr valign="top">
-                    <th scope="row"><label for="progress_bar_well_width">Ancho del Fondo de la Barra de Progreso (%)</label></th>
-                    <td><input type="number" id="progress_bar_well_width" name="progress_bar_well_width" value="<?php echo esc_attr(get_option("progress_bar_well_width", 100)); ?>" placeholder="100" class="small-text" /></td>
-                </tr>
-                <tr valign="top">
-                    <th scope="row"><label for="progress_bar_border_radius">Esquinas Redondeadas de la Barra de Progreso (px)</label></th>
-                    <td><input type="number" id="progress_bar_border_radius" name="progress_bar_border_radius" value="<?php echo esc_attr(get_option("progress_bar_border_radius", 0)); ?>" placeholder="0" class="small-text" /></td>
-                </tr>
-            </table>
-
-            <?php submit_button('Guardar Cambios', 'primary large'); ?>
-        </form>
-    </div>
-    <style>
-        .form-table th {
-            font-weight: normal;
-            width: 240px;
-            padding-bottom: 5px;
-            padding-top: 5px;
-        }
-        .form-table td {
-            padding-bottom: 5px;
-            padding-top: 5px;
-        }
-        .section-title {
-            margin-top: 40px; /* Increased space between sections */
-        }
-        .section-separator {
-            margin-top: 10px; /* Small space between title and separator */
-            margin-bottom: 20px; /* Consistent space between separator and section content */
-        }
-        .form-table td input[type="text"], 
-        .form-table td input[type="number"], 
-        .form-table td textarea, 
-        .form-table td select {
-            width: 100%;
-            max-width: 400px;
-        }
-        .large-color-picker {
-            width: 70px;
-            height: 30px;
-            padding: 0;
-            border: 1px solid #ccc;
-            border-radius: 3px;
-        }
-    </style>
-    <?php
-}
     public static function donations_list_page()
     {
         global $wpdb;
@@ -385,7 +381,6 @@ class Donations_Module
                             transaction_id: data.tx,
                             donation_amount: data.amt
                         };
-
                         fetch('<?php echo admin_url("admin-ajax.php"); ?>', {
                             method: 'POST',
                             headers: {
@@ -584,4 +579,4 @@ class Donations_Module
 new Donations_Module();
 
 register_activation_hook(__FILE__, ["Donations_Module", "activate"]);
-register_deactivation_hook(__FILE__, ["Donations_Module", "deactivate"]);                    
+register_deactivation_hook(__FILE__, ["Donations_Module", "deactivate"]);

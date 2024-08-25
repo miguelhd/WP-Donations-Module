@@ -78,8 +78,8 @@ class Donations_Module {
 
         add_submenu_page(
             'donations-module',
-            'Lista de Donaciones',
-            'Lista de Donaciones',
+            'Donaciones',
+            'Donaciones',
             'manage_options',
             'donations-module-donations-list',
             [$this, 'donations_list_page']
@@ -119,6 +119,10 @@ class Donations_Module {
         register_setting('donations_module', 'progress_bar_well_color');
         register_setting('donations_module', 'progress_bar_well_width');
         register_setting('donations_module', 'progress_bar_border_radius');
+        register_setting('donations_module', 'donations_text_color', [
+            'default' => '#333333', // Default text color (dark gray)
+            'sanitize_callback' => 'sanitize_hex_color',
+        ]);
     }
 
     // Method to display the settings page
@@ -158,7 +162,7 @@ class Donations_Module {
                         <td><input type="text" id="paypal_hosted_button_id" name="paypal_hosted_button_id" value="<?php echo esc_attr(get_option('paypal_hosted_button_id')); ?>" placeholder="ABC1DEFGHIJ2K" class="regular-text" /></td>
                     </tr>
                     <tr valign="top">
-                        <th scope="row"><label for="cta_paragraph">Texto para Incentivar Donaciones</label></th>
+                        <th scope="row"><label for="cta_paragraph">Párrafo Incentivo</label></th>
                         <td><textarea id="cta_paragraph" name="cta_paragraph" rows="5" cols="50" placeholder="¡Ayúdanos a alcanzar nuestra meta! Dona ahora a través de PayPal y marca la diferencia." class="large-text"><?php echo esc_textarea(get_option('cta_paragraph')); ?></textarea></td>
                     </tr>
                 </table>
@@ -168,6 +172,16 @@ class Donations_Module {
                 <hr class="section-separator" />
                 <table class="form-table">
                     <tr valign="top">
+                        <th scope="row"><label for="content_alignment">Alinear Contenido</label></th>
+                        <td>
+                            <select id="content_alignment" name="content_alignment" class="regular-text">
+                                <option value="left" <?php selected(get_option('content_alignment'), 'left'); ?>>Izquierda</option>
+                                <option value="center" <?php selected(get_option('content_alignment'), 'center'); ?>>Centro</option>
+                                <option value="right" <?php selected(get_option('content_alignment'), 'right'); ?>>Derecha</option>
+                            </select>
+                        </td>
+                    </tr>
+                        <tr valign="top">
                         <th scope="row"><label for="show_amount_raised">Mostrar Monto Recaudado</label></th>
                         <td><input type="checkbox" id="show_amount_raised" name="show_amount_raised" value="1" <?php checked(get_option('show_amount_raised'), '1'); ?> /></td>
                     </tr>
@@ -180,18 +194,12 @@ class Donations_Module {
                         <td><input type="checkbox" id="show_number_of_donations" name="show_number_of_donations" value="1" <?php checked(get_option('show_number_of_donations'), '1'); ?> /></td>
                     </tr>
                     <tr valign="top">
-                        <th scope="row"><label for="show_cta_paragraph">Mostrar Texto para Incentivar</label></th>
+                        <th scope="row"><label for="show_cta_paragraph">Mostrar Párrafo Incentivo</label></th>
                         <td><input type="checkbox" id="show_cta_paragraph" name="show_cta_paragraph" value="1" <?php checked(get_option('show_cta_paragraph'), '1'); ?> /></td>
                     </tr>
                     <tr valign="top">
-                        <th scope="row"><label for="content_alignment">Alinear Contenido</label></th>
-                        <td>
-                            <select id="content_alignment" name="content_alignment" class="regular-text">
-                                <option value="left" <?php selected(get_option('content_alignment'), 'left'); ?>>Izquierda</option>
-                                <option value="center" <?php selected(get_option('content_alignment'), 'center'); ?>>Centro</option>
-                                <option value="right" <?php selected(get_option('content_alignment'), 'right'); ?>>Derecha</option>
-                            </select>
-                        </td>
+                        <th scope="row"><label for="donations_text_color">Color del Texto</label></th>
+                        <td><input type="color" id="donations_text_color" name="donations_text_color" value="<?php echo esc_attr(get_option('donations_text_color', '#333333')); ?>" class="large-color-picker" /></td>
                     </tr>
                 </table>
 
@@ -199,7 +207,7 @@ class Donations_Module {
                 <h2 class="section-title">Personalización de la Barra de Progreso</h2>
                 <hr class="section-separator" />
                 <table class="form-table">
-                    <!-- Color Adjustments (moved to the top) -->
+                    <!-- Color Adjustments -->
                     <tr valign="top">
                         <th scope="row"><label for="progress_bar_color">Color de la Barra de Progreso</label></th>
                         <td><input type="color" id="progress_bar_color" name="progress_bar_color" value="<?php echo esc_attr(get_option('progress_bar_color', '#00ff00')); ?>" placeholder="#00ff00" class="large-color-picker" /></td>
@@ -267,10 +275,40 @@ class Donations_Module {
     public function donations_list_page() {
         global $wpdb;
         $table_name = $wpdb->prefix . 'donations';
+
+        // Fetching data
+        $total_collected = $this->get_current_donations_total();
+        $goal = intval(get_option('donations_goal', 0));
+        $donations_count = $this->get_total_donations_count();
+        $percentage_of_goal = $goal > 0 ? ($total_collected / $goal) * 100 : 0;
+
+        // Fetching the donations list
         $donations = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
+
         ?>
         <div class="wrap">
-            <h1>Lista de Donaciones</h1>
+            <h1>Donaciones</h1>
+
+            <!-- Metrics Dashboard -->
+            <div class="donations-dashboard">
+                <div class="metrics-card">
+                    <div class="metric-value"><?php echo '$' . number_format($total_collected, 2); ?></div>
+                    <div class="metric-label">Total Recaudado</div>
+                </div>
+                <div class="metrics-card">
+                    <div class="metric-value"><?php echo number_format($percentage_of_goal, 2) . '%'; ?></div>
+                    <div class="metric-label">Meta Alcanzada</div>
+                    <div class="progress">
+                        <div class="progress-bar" style="width: <?php echo $percentage_of_goal; ?>%;"></div>
+                    </div>
+                </div>
+                <div class="metrics-card">
+                    <div class="metric-value"><?php echo intval($donations_count); ?></div>
+                    <div class="metric-label">Número de Donaciones</div>
+                </div>
+            </div>
+
+            <!-- Donations Table -->
             <table class="wp-list-table widefat fixed striped">
                 <thead>
                     <tr>
@@ -292,6 +330,73 @@ class Donations_Module {
                 </tbody>
             </table>
         </div>
+        <style>
+            .donations-dashboard {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 30px; /* Space between dashboard and table */
+                margin-top: 20px; /* Increased space between title and metrics cards */
+            }
+
+            .metrics-card {
+                background: #f8f9fa;
+                border: 1px solid #e9ecef; /* Consistent border with table */
+                border-radius: 8px;
+                padding: 20px;
+                text-align: center;
+                flex: 1;
+                margin: 0 10px;
+            }
+
+            .metrics-card .metric-value {
+                font-size: 2em;
+                font-weight: bold;
+                color: #333;
+            }
+
+            .metrics-card .metric-label {
+                font-size: 1em;
+                color: #666;
+                margin-top: 10px;
+            }
+
+            .progress {
+                margin-top: 15px;
+                background-color: #e9ecef;
+                border-radius: 8px;
+                overflow: hidden;
+                height: 10px;
+                width: 100%;
+            }
+
+            .progress-bar {
+                height: 100%;
+                background-color: #28a745;
+                transition: width 0.4s ease;
+            }
+
+            .wp-list-table {
+                border: 1px solid #e9ecef; /* Matching border with metrics cards */
+                border-radius: 8px;
+                width: 100%;
+                margin-top: 20px;
+            }
+
+            .wp-list-table th, .wp-list-table td {
+                border: 1px solid #e9ecef; /* Consistent cell borders */
+            }
+
+            .form-table td input[type="text"], 
+            .form-table td input[type="number"], 
+            .form-table td textarea, 
+            .form-table td select {
+                border: 1px solid #e9ecef; /* Consistent border with other elements */
+                border-radius: 4px;
+                padding: 5px;
+                width: 100%;
+                max-width: 400px;
+            }
+        </style>
         <?php
     }
 
@@ -310,10 +415,11 @@ class Donations_Module {
 
         $cta_paragraph = esc_textarea(get_option('cta_paragraph', '¡Ayúdanos a alcanzar nuestra meta! Dona ahora a través de PayPal y marca la diferencia.'));
         $content_alignment = esc_attr(get_option('content_alignment', 'center'));
+        $text_color = esc_attr(get_option('donations_text_color', '#333333'));
 
         ob_start();
         ?>
-        <div class="donations-module" style="text-align: <?php echo $content_alignment; ?>;">
+        <div class="donations-module" style="color: <?php echo $text_color; ?>; text-align: <?php echo $content_alignment; ?>;">
             <?php if (get_option('show_cta_paragraph', '1')): ?>
                 <p class="cta-paragraph"><?php echo $cta_paragraph; ?></p>
             <?php endif; ?>

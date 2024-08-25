@@ -3,7 +3,7 @@
 Plugin Name: Donations Module
 Plugin URI: https://miguelhd.com
 Description: Un plugin para aceptar donaciones a través de PayPal Donate SDK para organizaciones sin fines de lucro.
-Version: 1.2.0
+Version: 1.2.1
 Author: Miguel Hernández Domenech
 Author URI: https://miguelhd.com
 License: GPLv2 or later

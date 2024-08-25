@@ -5,7 +5,7 @@
 **Tags:** donations, PayPal, non-profit  
 **Requires at least:** 5.0  
 **Tested up to:** 5.8  
-**Stable tag:** 1.2.0  
+**Stable tag:** 1.2.1  
 **License:** GPLv2 or later  
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html  
 
@@ -14,6 +14,11 @@ A plugin to accept donations via PayPal/Braintree for non-profits.
 ## Description
 
 The Donations Module Plugin allows non-profit organizations to accept donations via PayPal on their WordPress site. It includes features such as real-time donation tracking, secure nonce verification for donation processing, and detailed error logging for troubleshooting.
+
+### New Features in 1.2.1:
+- **Enhanced Donations Dashboard:** Introduced a new dashboard with metrics cards displaying total amount collected, percentage of the goal, and the number of donations.
+- **Visual and Styling Improvements:** Improved visual alignment, spacing, and border consistency across the dashboard and settings.
+- **Localization Updates:** All labels in the admin interface have been updated to Spanish for better localization support.
 
 ### New Features in 1.2.0:
 - **Code Refactoring:** Encapsulated the plugin functionality within a class structure for better organization, maintainability, and extensibility.
@@ -29,6 +34,7 @@ The Donations Module Plugin allows non-profit organizations to accept donations 
 - Detailed error logging for easier troubleshooting.
 - Easy integration using the `[donations_form]` shortcode.
 - Class-based architecture for better maintainability.
+- Enhanced metrics dashboard for donation tracking.
 
 ## Installation
 
@@ -63,6 +69,11 @@ When a user submits a donation:
 The plugin uses WordPress's built-in nonce verification to protect against unauthorized submissions. Always ensure that your site is running the latest version of WordPress for the best security.
 
 ## Changelog
+
+### 1.2.1
+- Enhanced Donations Dashboard with metrics cards.
+- Improved visual alignment and styling consistency.
+- Updated labels to Spanish for better localization.
 
 ### 1.2.0
 - Refactored the plugin to encapsulate functionality within a class structure.

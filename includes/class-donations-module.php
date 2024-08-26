@@ -402,177 +402,101 @@ class Donations_Module {
 
     // Method to handle the donation form shortcode
     public function donations_form_shortcode() {
-        $goal = intval(get_option('donations_goal', 0));
-        $current_total = $this->get_current_donations_total();
-        $donations_count = $this->get_total_donations_count();
-        $progress = $goal > 0 ? ($current_total / $goal) * 100 : 0;
+    $goal = intval(get_option('donations_goal', 0));
+    $current_total = $this->get_current_donations_total();
+    $donations_count = $this->get_total_donations_count();
+    $progress = $goal > 0 ? ($current_total / $goal) * 100 : 0;
 
-        $progress_bar_color = get_option('progress_bar_color', '#00ff00');
-        $progress_bar_height = get_option('progress_bar_height', 20);
-        $progress_bar_well_color = get_option('progress_bar_well_color', '#eeeeee');
-        $progress_bar_well_width = get_option('progress_bar_well_width', 100);
-        $progress_bar_border_radius = get_option('progress_bar_border_radius', 0);
+    $progress_bar_color = esc_attr(get_option('progress_bar_color', '#00ff00'));
+    $progress_bar_height = intval(get_option('progress_bar_height', 20));
+    $progress_bar_well_color = esc_attr(get_option('progress_bar_well_color', '#eeeeee'));
+    $progress_bar_well_width = intval(get_option('progress_bar_well_width', 100));
+    $progress_bar_border_radius = intval(get_option('progress_bar_border_radius', 0));
+    $text_color = esc_attr(get_option('donations_text_color', '#333333'));
 
-        $cta_paragraph = esc_textarea(get_option('cta_paragraph', '¡Ayúdanos a alcanzar nuestra meta! Dona ahora a través de PayPal y marca la diferencia.'));
-        $content_alignment = esc_attr(get_option('content_alignment', 'center'));
-        $text_color = esc_attr(get_option('donations_text_color', '#333333'));
+    $show_amount_raised = get_option('show_amount_raised', '1');
+    $show_percentage_of_goal = get_option('show_percentage_of_goal', '1');
+    $show_number_of_donations = get_option('show_number_of_donations', '1');
+    $show_cta_paragraph = get_option('show_cta_paragraph', '1');
+    $cta_paragraph = esc_textarea(get_option('cta_paragraph', '¡Ayúdanos a alcanzar nuestra meta! Dona ahora a través de PayPal y marca la diferencia.'));
+    $content_alignment = esc_attr(get_option('content_alignment', 'left'));
 
-        ob_start();
-        ?>
-        <div class="donations-module" style="color: <?php echo $text_color; ?>; text-align: <?php echo $content_alignment; ?>;">
-            <?php if (get_option('show_cta_paragraph', '1')): ?>
-                <p class="cta-paragraph"><?php echo $cta_paragraph; ?></p>
+    ob_start();
+    ?>
+    <div class="donations-module-wrapper" style="text-align: <?php echo $content_alignment; ?>; color: <?php echo $text_color; ?>; margin-left: 0; padding: 0 0 20px 0;"> <!-- Adjusted padding -->
+        <?php if ($show_cta_paragraph === '1'): ?>
+            <p class="cta-paragraph" style="margin-bottom: 20px;"><?php echo $cta_paragraph; ?></p>
+        <?php endif; ?>
+
+        <div class="donation-stats" style="margin-bottom: 10px; margin-top: 0;"> <!-- Reduced margin below and removed extra space -->
+            <?php if ($show_amount_raised === '1'): ?>
+                <div>Total Recaudado: <strong><?php echo '$' . number_format($current_total, 2); ?></strong></div>
             <?php endif; ?>
-
-            <div class="donation-stats">
-                <?php if (get_option('show_amount_raised', '1')): ?>
-                    <p><strong>Monto recaudado:</strong> $<?php echo number_format($current_total, 2); ?></p>
-                <?php endif; ?>
-                
-                <?php if (get_option('show_percentage_of_goal', '1')): ?>
-                    <p><strong>Porcentaje de la meta:</strong> <?php echo number_format($progress, 2); ?>%</p>
-                <?php endif; ?>
-                
-                <?php if (get_option('show_number_of_donations', '1')): ?>
-                    <p><strong>Número de donaciones:</strong> <?php echo intval($donations_count); ?></p>
-                <?php endif; ?>
-            </div>
-
-            <form id="donations-form" class="donations-form alignwide" onsubmit="return false;" aria-labelledby="donations-form-heading">
-                <input type="hidden" name="button_id" value="<?php echo esc_attr(get_option('paypal_hosted_button_id')); ?>">
-                <input type="hidden" name="donation_nonce" value="<?php echo wp_create_nonce('save_donation'); ?>">
-                <div id="paypal-button-container"></div>
-                <div id="form-feedback" role="alert" style="display:none; color:red;"></div>
-            </form>
+            <?php if ($show_percentage_of_goal === '1'): ?>
+                <div>Meta Alcanzada: <strong><?php echo number_format($progress, 2); ?>%</strong></div>
+            <?php endif; ?>
+            <?php if ($show_number_of_donations === '1'): ?>
+                <div>Número de Donaciones: <strong><?php echo intval($donations_count); ?></strong></div>
+            <?php endif; ?>
         </div>
-        <div id="donation-progress" style="background-color: <?php echo esc_attr($progress_bar_well_color); ?>; width: <?php echo esc_attr($progress_bar_well_width); ?>%; height: <?php echo esc_attr($progress_bar_height); ?>px; max-width: 100%; border-radius: <?php echo esc_attr($progress_bar_border_radius); ?>px;" role="progressbar" aria-valuenow="<?php echo $progress; ?>" aria-valuemin="0" aria-valuemax="100">
-            <div id="progress-bar" style="width: <?php echo $progress; ?>%; background-color: <?php echo esc_attr($progress_bar_color); ?>; height: 100%; <?php echo $progress >= 100 ? 'border-radius: ' . esc_attr($progress_bar_border_radius) . 'px;' : 'border-radius: ' . esc_attr($progress_bar_border_radius) . 'px 0 0 ' . esc_attr($progress_bar_border_radius) . 'px;'; ?>">
-                <?php echo number_format($progress, 2); ?>%
+
+        <div id="donation-progress-wrapper" style="margin: 15px 0 10px 0;">
+            <div id="donation-progress" style="background-color: <?php echo $progress_bar_well_color; ?>; width: <?php echo $progress_bar_well_width; ?>%; height: <?php echo $progress_bar_height; ?>px; border-radius: <?php echo $progress_bar_border_radius; ?>px; overflow: hidden;">
+                <div id="progress-bar" style="width: <?php echo $progress; ?>%; background-color: <?php echo $progress_bar_color; ?>; height: 100%; border-radius: <?php echo $progress >= 100 ? $progress_bar_border_radius . 'px' : $progress_bar_border_radius . 'px 0 0 ' . $progress_bar_border_radius . 'px'; ?>;"></div>
             </div>
+            <p id="donation-summary" style="margin-top: 5px; text-align: left;"><?php echo '$' . number_format($current_total, 0) . ' de $' . number_format($goal, 0); ?></p> <!-- Ensure closer alignment to the progress bar -->
         </div>
-        <p id="donation-summary"><?php echo '$' . intval($current_total) . ' de $' . $goal; ?></p>
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                PayPal.Donation.Button({
-                    env: 'sandbox', // Change to 'production' when going live
-                    hosted_button_id: '<?php echo esc_js(get_option('paypal_hosted_button_id')); ?>',
-                    onComplete: function(data) {
-                        var donationData = {
-                            action: 'save_donation',
-                            donation_nonce: '<?php echo wp_create_nonce('save_donation'); ?>',
-                            transaction_id: data.tx,
-                            donation_amount: data.amt
-                        };
-                        fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/x-www-form-urlencoded',
-                            },
-                            body: new URLSearchParams(donationData)
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success) {
-                                console.log('Donation saved successfully.');
-                                location.reload(); // Refresh the page to update values
-                            } else {
-                                console.error('Error saving donation:', data.message);
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Fetch error:', error);
-                        });
-                    }
-                }).render('#paypal-button-container');
-            });
-        </script>
-        <style>
-            :root {
-                --donation-form-bg: #ffffff;
-                --donation-form-color: #333333;
-            }
 
-            .donations-module {
-                padding: 20px;
-                background-color: inherit;
-                color: inherit;
-            }
-            
-            .donations-module .cta-paragraph {
-                font-size: 1.2em;
-                margin-bottom: 20px;
-            }
+        <form id="donations-form" class="donations-form" onsubmit="return false;" aria-labelledby="donations-form-heading">
+            <div id="paypal-button-container" style="margin-top: 10px; text-align: left;"></div>
+        </form>
+    </div>
 
-            .donations-module .donation-stats {
-                margin-bottom: 20px;
-            }
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            PayPal.Donation.Button({
+                env: 'sandbox', // Change to 'production' when going live
+                hosted_button_id: '<?php echo esc_js(get_option('paypal_hosted_button_id')); ?>',
+                onComplete: function(data) {
+                    // Handle the onComplete event
+                }
+            }).render('#paypal-button-container');
+        });
+    </script>
 
-            .donations-module .donation-stats p {
-                margin: 5px 0;
-                font-weight: bold;
-            }
+    <style>
+        .donations-module-wrapper {
+            max-width: 600px;
+            margin-left: 0; /* Align with the left edge */
+            padding: 0 0 20px 0; /* Adjusted padding */
+            background-color: inherit;
+            color: inherit;
+        }
 
-            .donations-module .donations-form {
-                max-width: 100%;
-                padding: 10px;
-                box-sizing: border-box;
-                background-color: var(--donation-form-bg);
-                color: var(--donation-form-color);
-                display: flex;
-                flex-direction: column;
-                gap: 20px;
-            }
+        .donation-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 5px; /* Reduced gap between lines */
+            text-align: left;
+        }
 
-            #paypal-button-container {
-                max-width: 100%;
-                margin-bottom: 20px;
-            }
+        #paypal-button-container {
+            text-align: left;
+        }
 
-            #donation-progress {
-                width: 100%;
-                max-width: 400px;
-                background-color: <?php echo esc_attr($progress_bar_well_color); ?>;
-                height: <?php echo esc_attr($progress_bar_height); ?>px;
-                border-radius: <?php echo esc_attr($progress_bar_border_radius); ?>px;
-                overflow: hidden;
-            }
+        #donation-progress-wrapper {
+            margin-top: 0;
+            padding-top: 0;
+        }
 
-            #progress-bar {
-                width: <?php echo $progress; ?>%;
-                background-color: <?php echo esc_attr($progress_bar_color); ?>;
-                height: 100%;
-                transition: width 0.5s ease-in-out;
-                text-align: center;
-                color: #fff;
-                font-weight: bold;
-                line-height: <?php echo esc_attr($progress_bar_height); ?>px;
-                border-radius: <?php echo $progress >= 100
-                    ? esc_attr($progress_bar_border_radius) . 'px'
-                    : esc_attr($progress_bar_border_radius) .
-                        'px 0 0 ' .
-                        esc_attr($progress_bar_border_radius) .
-                        'px'; ?>;
-            }
-
-            #donation-summary {
-                font-size: 1.2em;
-                font-weight: bold;
-            }
-
-            .alignleft {
-                text-align: left;
-            }
-
-            .alignright {
-                text-align: right;
-            }
-
-            .aligncenter {
-                text-align: center;
-            }
-        </style>
-        <?php return ob_get_clean();
-    }
+        #donation-summary {
+            margin-top: 5px;
+            text-align: left;
+        }
+    </style>
+    <?php
+    return ob_get_clean();
+}
 
     // Method to get the current total donations
     private function get_current_donations_total() {

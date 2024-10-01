@@ -15,6 +15,9 @@ class Donations_Module {
         add_action('wp_ajax_save_donation', [$this, 'save_donation']);
         add_action('wp_ajax_nopriv_save_donation', [$this, 'save_donation']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_paypal_sdk']);
+        
+        // Register the webhook listener
+        add_action('rest_api_init', [$this, 'register_webhook_listener']);
     }
 
     // Method to run on plugin activation
@@ -23,27 +26,46 @@ class Donations_Module {
         $table_name = $wpdb->prefix . 'donations';
         $charset_collate = $wpdb->get_charset_collate();
 
-        $sql = "CREATE TABLE $table_name (
-            id mediumint(9) NOT NULL AUTO_INCREMENT,
-            transaction_id varchar(255) NOT NULL,
-            amount decimal(10, 2) NOT NULL,
-            created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
-            PRIMARY KEY  (id)
-        ) $charset_collate;";
+        $installed_version = get_option('donations_module_db_version');
+        $current_version = '1.1'; // Update the version as needed
 
-        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-        dbDelta($sql);
+        if ($installed_version != $current_version) {
+            $sql = "CREATE TABLE $table_name (
+                id mediumint(9) NOT NULL AUTO_INCREMENT,
+                transaction_id varchar(255) NOT NULL,
+                amount decimal(10, 2) NOT NULL,
+                currency varchar(10) NOT NULL,
+                donor_name varchar(255) NOT NULL,
+                donor_email varchar(255) NOT NULL,
+                donor_address text,
+                created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                PRIMARY KEY  (id)
+            ) $charset_collate;";
+
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            dbDelta($sql);
+
+            update_option('donations_module_db_version', $current_version);
+        }
+
+        // Flush rewrite rules
+        flush_rewrite_rules();
     }
 
     // Method to run on plugin deactivation
     public static function deactivate() {
         // Placeholder for deactivation logic, if needed
+        // Flush rewrite rules
+        flush_rewrite_rules();
     }
 
     // Method to initialize the plugin
     public static function init() {
-        // Instantiate the class
-        $instance = new self();
+        // Ensure only one instance of the class is created
+        static $instance = null;
+        if (is_null($instance)) {
+            $instance = new self();
+        }
     }
 
     // Method to enqueue PayPal SDK script
@@ -59,25 +81,27 @@ class Donations_Module {
 
     // Method to add an admin menu
     public function add_admin_menu() {
+        $parent_slug = 'donations-module';
         add_menu_page(
             'Configuración del módulo de donaciones',
             'Módulo de donaciones',
             'manage_options',
-            'donations-module',
-            [$this, 'settings_page']
+            $parent_slug,
+            [$this, 'settings_page'],
+            'dashicons-heart'
         );
 
         add_submenu_page(
-            'donations-module',
+            $parent_slug,
             'Configuración',
             'Configuración',
             'manage_options',
-            'donations-module',
+            'donations-module-settings',
             [$this, 'settings_page']
         );
 
         add_submenu_page(
-            'donations-module',
+            $parent_slug,
             'Donaciones',
             'Donaciones',
             'manage_options',
@@ -88,6 +112,7 @@ class Donations_Module {
 
     // Method to register plugin settings
     public function register_settings() {
+        // General settings
         register_setting('donations_module', 'donations_goal', [
             'sanitize_callback' => 'intval',
         ]);
@@ -99,6 +124,8 @@ class Donations_Module {
         register_setting('donations_module', 'total_amount_raised', [
             'default' => 0,
         ]);
+
+        // Display settings
         register_setting('donations_module', 'show_amount_raised', [
             'default' => '1',
         ]);
@@ -123,25 +150,199 @@ class Donations_Module {
             'default' => '#333333', // Default text color (dark gray)
             'sanitize_callback' => 'sanitize_hex_color',
         ]);
+
+        // PayPal API settings
+        register_setting('donations_module', 'paypal_client_id');
+        register_setting('donations_module', 'paypal_client_secret');
+        register_setting('donations_module', 'paypal_webhook_id');
+        register_setting('donations_module', 'paypal_environment', [
+            'default' => 'sandbox',
+        ]);
+    }
+
+    // Method to register the webhook listener
+    public function register_webhook_listener() {
+        // Register the REST route for the webhook
+        register_rest_route('donations/v1', '/webhook/', [
+            'methods' => 'POST',
+            'callback' => [$this, 'handle_webhook'],
+            'permission_callback' => '__return_true', // Allow access to the endpoint
+        ]);
+    }
+
+    // Method to handle webhook
+    public function handle_webhook(WP_REST_Request $request) {
+        $body = $request->get_body();
+        $headers = $request->get_headers();
+
+        error_log('Webhook received.');
+
+        // Verify the webhook signature
+        $verification_result = $this->verify_webhook_signature($body, $headers);
+        if (!$verification_result) {
+            error_log('Webhook signature verification failed.');
+            return new WP_Error('invalid_signature', 'Invalid webhook signature', ['status' => 400]);
+        }
+
+        error_log('Webhook signature verified.');
+
+        // Decode the JSON body to handle the event
+        $event = json_decode($body);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log('Invalid JSON body: ' . json_last_error_msg());
+            return new WP_Error('invalid_json', 'Invalid JSON body', ['status' => 400]);
+        }
+
+        error_log('Event Type: ' . $event->event_type);
+
+        // Handle the PAYMENT.CAPTURE.COMPLETED event
+        if ($event->event_type === 'PAYMENT.CAPTURE.COMPLETED') {
+            $resource = $event->resource;
+
+            $transactionId = $resource->id;
+            $amount = $resource->amount->value;
+            $currency = $resource->amount->currency_code;
+
+            // Extract payer information
+            $payer = $resource->payer;
+            $donorName = $payer->name->given_name . ' ' . $payer->name->surname;
+            $donorEmail = $payer->email_address;
+            $donorAddress = isset($payer->address) ? $payer->address : null; // Address may not always be available
+
+            error_log('Transaction ID: ' . $transactionId);
+            error_log('Amount: ' . $amount . ' ' . $currency);
+            error_log('Donor Name: ' . $donorName);
+            error_log('Donor Email: ' . $donorEmail);
+
+            // Insert donation into the database
+            global $wpdb;
+            $table_name = $wpdb->prefix . 'donations';
+            $wpdb->insert($table_name, [
+                'transaction_id' => sanitize_text_field($transactionId),
+                'amount' => floatval($amount),
+                'currency' => sanitize_text_field($currency),
+                'donor_name' => sanitize_text_field($donorName),
+                'donor_email' => sanitize_email($donorEmail),
+                'donor_address' => maybe_serialize($donorAddress),
+                'created_at' => current_time('mysql'),
+            ]);
+
+            // Update donation metrics
+            update_option('total_amount_raised', $this->get_current_donations_total());
+            update_option('number_of_donations', $this->get_total_donations_count());
+
+            error_log('Donation saved successfully');
+            return new WP_REST_Response(['status' => 'success'], 200);
+        } else {
+            error_log('Unhandled event type: ' . $event->event_type);
+            return new WP_Error('unhandled_event', 'Unhandled event type', ['status' => 400]);
+        }
+    }
+
+    // Method to verify the webhook signature
+    private function verify_webhook_signature($body, $headers) {
+        $paypal_client_id = get_option('paypal_client_id');
+        $paypal_client_secret = get_option('paypal_client_secret');
+        $paypal_webhook_id = get_option('paypal_webhook_id');
+
+        // Check if necessary options are set
+        if (empty($paypal_client_id) || empty($paypal_client_secret) || empty($paypal_webhook_id)) {
+            error_log('PayPal API credentials are not set.');
+            return false;
+        }
+
+        // Determine the PayPal environment
+        $environment = get_option('paypal_environment', 'sandbox');
+        $endpoint = 'https://api.paypal.com/v1/notifications/verify-webhook-signature';
+        if ($environment === 'sandbox') {
+            $endpoint = 'https://api.sandbox.paypal.com/v1/notifications/verify-webhook-signature';
+        }
+
+        // Get access token
+        $access_token = $this->get_paypal_access_token($paypal_client_id, $paypal_client_secret, $environment);
+        if (!$access_token) {
+            error_log('Failed to obtain PayPal access token.');
+            return false;
+        }
+
+        // Correctly access headers
+        $signatureVerificationData = [
+            'auth_algo' => isset($headers['paypal_auth_algo'][0]) ? $headers['paypal_auth_algo'][0] : '',
+            'cert_url' => isset($headers['paypal_cert_url'][0]) ? $headers['paypal_cert_url'][0] : '',
+            'transmission_id' => isset($headers['paypal_transmission_id'][0]) ? $headers['paypal_transmission_id'][0] : '',
+            'transmission_sig' => isset($headers['paypal_transmission_sig'][0]) ? $headers['paypal_transmission_sig'][0] : '',
+            'transmission_time' => isset($headers['paypal_transmission_time'][0]) ? $headers['paypal_transmission_time'][0] : '',
+            'webhook_id' => $paypal_webhook_id,
+            'webhook_event' => json_decode($body, true),
+        ];
+
+        // Check for missing headers
+        foreach ($signatureVerificationData as $key => $value) {
+            if (empty($value) && $key !== 'webhook_event' && $key !== 'webhook_id') {
+                error_log("Missing header or value for: $key");
+                return false;
+            }
+        }
+
+        $args = [
+            'body' => json_encode($signatureVerificationData),
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'Authorization' => 'Bearer ' . $access_token,
+            ],
+            'method' => 'POST',
+            'timeout' => 30,
+        ];
+
+        $response = wp_remote_post($endpoint, $args);
+        if (is_wp_error($response)) {
+            error_log('Webhook signature verification failed: ' . $response->get_error_message());
+            return false;
+        }
+
+        $response_body = wp_remote_retrieve_body($response);
+        $verificationResult = json_decode($response_body, true);
+
+        $verification_status = isset($verificationResult['verification_status']) ? $verificationResult['verification_status'] : 'FAILURE';
+        error_log('Verification Status: ' . $verification_status);
+
+        return $verification_status === 'SUCCESS';
+    }
+
+    // Method to get PayPal access token
+    private function get_paypal_access_token($client_id, $client_secret, $environment) {
+        $endpoint = 'https://api.paypal.com/v1/oauth2/token';
+        if ($environment === 'sandbox') {
+            $endpoint = 'https://api.sandbox.paypal.com/v1/oauth2/token';
+        }
+
+        $args = [
+            'body' => 'grant_type=client_credentials',
+            'headers' => [
+                'Authorization' => 'Basic ' . base64_encode($client_id . ':' . $client_secret),
+                'Content-Type' => 'application/x-www-form-urlencoded',
+            ],
+            'method' => 'POST',
+            'timeout' => 30,
+        ];
+
+        $response = wp_remote_post($endpoint, $args);
+        if (is_wp_error($response)) {
+            error_log('Failed to obtain PayPal access token: ' . $response->get_error_message());
+            return false;
+        }
+
+        $response_body = wp_remote_retrieve_body($response);
+        $tokenResult = json_decode($response_body, true);
+
+        return isset($tokenResult['access_token']) ? $tokenResult['access_token'] : false;
     }
 
     // Method to display the settings page
     public function settings_page() {
-        // Check if settings were saved and display a success message
-        if (isset($_GET['settings-updated']) && $_GET['settings-updated'] == 'true') {
-            add_settings_error(
-                'donations_module_messages',
-                'donations_module_message',
-                __('Configuración guardada correctamente.', 'donations-module'),
-                'updated'
-            );
-        }
-
-        // Display any error messages that occurred
-        settings_errors('donations_module_messages');
-        
         ?>
-        <div class="wrap">
+        <div class="donations-module-wrapper">
             <h1>Configuración del módulo de donaciones</h1>
             <form method="post" action="options.php">
                 <?php
@@ -150,38 +351,65 @@ class Donations_Module {
                 ?>
 
                 <!-- General Settings Section -->
-                <h2 class="section-title">Configuración General</h2>
-                <hr class="section-separator" />
-                <table class="form-table">
+                <h2 class="donations-module-title">Configuración General</h2>
+                <hr class="donations-module-separator" />
+                <table class="donations-module-form-table">
                     <tr valign="top">
                         <th scope="row"><label for="donations_goal">Meta de Donaciones</label></th>
-                        <td><input type="number" id="donations_goal" name="donations_goal" value="<?php echo esc_attr(intval(get_option('donations_goal'))); ?>" placeholder="1000" class="regular-text" /></td>
+                        <td><input type="number" id="donations_goal" name="donations_goal" value="<?php echo esc_attr(intval(get_option('donations_goal'))); ?>" placeholder="1000" class="donations-module-regular-text" /></td>
                     </tr>
                     <tr valign="top">
                         <th scope="row"><label for="paypal_hosted_button_id">PayPal Button ID</label></th>
-                        <td><input type="text" id="paypal_hosted_button_id" name="paypal_hosted_button_id" value="<?php echo esc_attr(get_option('paypal_hosted_button_id')); ?>" placeholder="ABC1DEFGHIJ2K" class="regular-text" /></td>
+                        <td><input type="text" id="paypal_hosted_button_id" name="paypal_hosted_button_id" value="<?php echo esc_attr(get_option('paypal_hosted_button_id')); ?>" placeholder="ABC1DEFGHIJ2K" class="donations-module-regular-text" /></td>
                     </tr>
                     <tr valign="top">
                         <th scope="row"><label for="cta_paragraph">Párrafo Incentivo</label></th>
-                        <td><textarea id="cta_paragraph" name="cta_paragraph" rows="5" cols="50" placeholder="¡Ayúdanos a alcanzar nuestra meta! Dona ahora a través de PayPal y marca la diferencia." class="large-text"><?php echo esc_textarea(get_option('cta_paragraph')); ?></textarea></td>
+                        <td><textarea id="cta_paragraph" name="cta_paragraph" rows="5" cols="50" placeholder="¡Ayúdanos a alcanzar nuestra meta! Dona ahora a través de PayPal y marca la diferencia." class="donations-module-large-text"><?php echo esc_textarea(get_option('cta_paragraph')); ?></textarea></td>
+                    </tr>
+                </table>
+
+                <!-- PayPal API Settings Section -->
+                <h2 class="donations-module-title">Configuración de PayPal API</h2>
+                <hr class="donations-module-separator" />
+                <table class="donations-module-form-table">
+                    <tr valign="top">
+                        <th scope="row"><label for="paypal_environment">Entorno de PayPal</label></th>
+                        <td>
+                            <select id="paypal_environment" name="paypal_environment" class="donations-module-regular-text">
+                                <option value="sandbox" <?php selected(get_option('paypal_environment'), 'sandbox'); ?>>Sandbox</option>
+                                <option value="live" <?php selected(get_option('paypal_environment'), 'live'); ?>>Live</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="paypal_client_id">PayPal Client ID</label></th>
+                        <td><input type="text" id="paypal_client_id" name="paypal_client_id" value="<?php echo esc_attr(get_option('paypal_client_id')); ?>" placeholder="Ingrese su Client ID de PayPal" class="donations-module-regular-text" /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="paypal_client_secret">PayPal Client Secret</label></th>
+                        <td><input type="text" id="paypal_client_secret" name="paypal_client_secret" value="<?php echo esc_attr(get_option('paypal_client_secret')); ?>" placeholder="Ingrese su Client Secret de PayPal" class="donations-module-regular-text" /></td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><label for="paypal_webhook_id">PayPal Webhook ID</label></th>
+                        <td><input type="text" id="paypal_webhook_id" name="paypal_webhook_id" value="<?php echo esc_attr(get_option('paypal_webhook_id')); ?>" placeholder="Ingrese su Webhook ID de PayPal" class="donations-module-regular-text" /></td>
                     </tr>
                 </table>
 
                 <!-- Display Settings Section -->
-                <h2 class="section-title">Configuración de Pantalla</h2>
-                <hr class="section-separator" />
-                <table class="form-table">
+                <h2 class="donations-module-title">Configuración de Pantalla</h2>
+                <hr class="donations-module-separator" />
+                <table class="donations-module-form-table">
                     <tr valign="top">
                         <th scope="row"><label for="content_alignment">Alinear Contenido</label></th>
                         <td>
-                            <select id="content_alignment" name="content_alignment" class="regular-text">
+                            <select id="content_alignment" name="content_alignment" class="donations-module-regular-text">
                                 <option value="left" <?php selected(get_option('content_alignment'), 'left'); ?>>Izquierda</option>
                                 <option value="center" <?php selected(get_option('content_alignment'), 'center'); ?>>Centro</option>
                                 <option value="right" <?php selected(get_option('content_alignment'), 'right'); ?>>Derecha</option>
                             </select>
                         </td>
                     </tr>
-                        <tr valign="top">
+                    <tr valign="top">
                         <th scope="row"><label for="show_amount_raised">Mostrar Monto Recaudado</label></th>
                         <td><input type="checkbox" id="show_amount_raised" name="show_amount_raised" value="1" <?php checked(get_option('show_amount_raised'), '1'); ?> /></td>
                     </tr>
@@ -199,36 +427,36 @@ class Donations_Module {
                     </tr>
                     <tr valign="top">
                         <th scope="row"><label for="donations_text_color">Color del Texto</label></th>
-                        <td><input type="color" id="donations_text_color" name="donations_text_color" value="<?php echo esc_attr(get_option('donations_text_color', '#333333')); ?>" class="large-color-picker" /></td>
+                        <td><input type="color" id="donations_text_color" name="donations_text_color" value="<?php echo esc_attr(get_option('donations_text_color', '#333333')); ?>" class="donations-module-large-color-picker" /></td>
                     </tr>
                 </table>
 
                 <!-- Progress Bar Customization Section -->
-                <h2 class="section-title">Personalización de la Barra de Progreso</h2>
-                <hr class="section-separator" />
-                <table class="form-table">
+                <h2 class="donations-module-title">Personalización de la Barra de Progreso</h2>
+                <hr class="donations-module-separator" />
+                <table class="donations-module-form-table">
                     <!-- Color Adjustments -->
                     <tr valign="top">
                         <th scope="row"><label for="progress_bar_color">Color de la Barra de Progreso</label></th>
-                        <td><input type="color" id="progress_bar_color" name="progress_bar_color" value="<?php echo esc_attr(get_option('progress_bar_color', '#00ff00')); ?>" placeholder="#00ff00" class="large-color-picker" /></td>
+                        <td><input type="color" id="progress_bar_color" name="progress_bar_color" value="<?php echo esc_attr(get_option('progress_bar_color', '#00ff00')); ?>" placeholder="#00ff00" class="donations-module-large-color-picker" /></td>
                     </tr>
                     <tr valign="top">
                         <th scope="row"><label for="progress_bar_well_color">Color del Fondo de la Barra de Progreso</label></th>
-                        <td><input type="color" id="progress_bar_well_color" name="progress_bar_well_color" value="<?php echo esc_attr(get_option('progress_bar_well_color', '#eeeeee')); ?>" placeholder="#eeeeee" class="large-color-picker" /></td>
+                        <td><input type="color" id="progress_bar_well_color" name="progress_bar_well_color" value="<?php echo esc_attr(get_option('progress_bar_well_color', '#eeeeee')); ?>" placeholder="#eeeeee" class="donations-module-large-color-picker" /></td>
                     </tr>
 
                     <!-- Sizing Adjustments -->
                     <tr valign="top">
-                        <th scope="row"><label for="progress_bar_height">Altura de la Barra de Progreso (px)</label></th>
-                        <td><input type="number" id="progress_bar_height" name="progress_bar_height" value="<?php echo esc_attr(get_option('progress_bar_height', 20)); ?>" placeholder="20" class="small-text" /></td>
+                        <th scope="row"><label for="progress_bar_height">Altura de la Barra de Progreso (px)</th>
+                        <td><input type="number" id="progress_bar_height" name="progress_bar_height" value="<?php echo esc_attr(get_option('progress_bar_height', 20)); ?>" placeholder="20" class="donations-module-small-text" /></td>
                     </tr>
                     <tr valign="top">
                         <th scope="row"><label for="progress_bar_well_width">Ancho del Fondo de la Barra de Progreso (%)</label></th>
-                        <td><input type="number" id="progress_bar_well_width" name="progress_bar_well_width" value="<?php echo esc_attr(get_option('progress_bar_well_width', 100)); ?>" placeholder="100" class="small-text" /></td>
+                        <td><input type="number" id="progress_bar_well_width" name="progress_bar_well_width" value="<?php echo esc_attr(get_option('progress_bar_well_width', 100)); ?>" placeholder="100" class="donations-module-small-text" /></td>
                     </tr>
                     <tr valign="top">
                         <th scope="row"><label for="progress_bar_border_radius">Esquinas Redondeadas de la Barra de Progreso (px)</label></th>
-                        <td><input type="number" id="progress_bar_border_radius" name="progress_bar_border_radius" value="<?php echo esc_attr(get_option('progress_bar_border_radius', 0)); ?>" placeholder="0" class="small-text" /></td>
+                        <td><input type="number" id="progress_bar_border_radius" name="progress_bar_border_radius" value="<?php echo esc_attr(get_option('progress_bar_border_radius', 0)); ?>" placeholder="0" class="donations-module-small-text" /></td>
                     </tr>
                 </table>
 
@@ -236,36 +464,54 @@ class Donations_Module {
             </form>
         </div>
         <style>
-            .form-table th {
+            /* Namespaced CSS to avoid conflicts */
+            .donations-module-wrapper h1 {
+                font-size: 24px;
+                margin-bottom: 20px;
+            }
+
+            .donations-module-wrapper .donations-module-title {
+                font-size: 20px;
+                margin-top: 40px; /* Increased space between sections */
+            }
+
+            .donations-module-wrapper .donations-module-separator {
+                margin-top: 10px; /* Small space between title and separator */
+                margin-bottom: 20px; /* Consistent space between separator and section content */
+            }
+
+            .donations-module-wrapper .donations-module-form-table th {
                 font-weight: normal;
                 width: 240px;
                 padding-bottom: 5px;
                 padding-top: 5px;
             }
-            .form-table td {
+
+            .donations-module-wrapper .donations-module-form-table td {
                 padding-bottom: 5px;
                 padding-top: 5px;
             }
-            .section-title {
-                margin-top: 40px; /* Increased space between sections */
-            }
-            .section-separator {
-                margin-top: 10px; /* Small space between title and separator */
-                margin-bottom: 20px; /* Consistent space between separator and section content */
-            }
-            .form-table td input[type="text"], 
-            .form-table td input[type="number"], 
-            .form-table td textarea, 
-            .form-table td select {
+
+            .donations-module-wrapper .donations-module-regular-text {
                 width: 100%;
                 max-width: 400px;
             }
-            .large-color-picker {
+
+            .donations-module-wrapper .donations-module-large-text {
+                width: 100%;
+                max-width: 400px;
+            }
+
+            .donations-module-wrapper .donations-module-large-color-picker {
                 width: 70px;
                 height: 30px;
                 padding: 0;
                 border: 1px solid #ccc;
                 border-radius: 3px;
+            }
+
+            .donations-module-wrapper .donations-module-small-text {
+                width: 70px;
             }
         </style>
         <?php
@@ -286,44 +532,67 @@ class Donations_Module {
         $donations = $wpdb->get_results("SELECT * FROM $table_name ORDER BY created_at DESC");
 
         ?>
-        <div class="wrap">
+        <div class="donations-module-wrapper">
             <h1>Donaciones</h1>
 
             <!-- Metrics Dashboard -->
             <div class="donations-dashboard">
-                <div class="metrics-card">
-                    <div class="metric-value"><?php echo '$' . number_format($total_collected, 2); ?></div>
-                    <div class="metric-label">Total Recaudado</div>
+                <div class="donations-metrics-card">
+                    <div class="donations-metric-value"><?php echo '$' . number_format($total_collected, 2); ?></div>
+                    <div class="donations-metric-label">Total Recaudado</div>
                 </div>
-                <div class="metrics-card">
-                    <div class="metric-value"><?php echo number_format($percentage_of_goal, 2) . '%'; ?></div>
-                    <div class="metric-label">Meta Alcanzada</div>
-                    <div class="progress">
-                        <div class="progress-bar" style="width: <?php echo $percentage_of_goal; ?>%;"></div>
+                <div class="donations-metrics-card">
+                    <div class="donations-metric-value"><?php echo number_format($percentage_of_goal, 2) . '%'; ?></div>
+                    <div class="donations-metric-label">Meta Alcanzada</div>
+                    <div class="donations-progress">
+                        <div class="donations-progress-bar" style="width: <?php echo $percentage_of_goal; ?>%;"></div>
                     </div>
                 </div>
-                <div class="metrics-card">
-                    <div class="metric-value"><?php echo intval($donations_count); ?></div>
-                    <div class="metric-label">Número de Donaciones</div>
+                <div class="donations-metrics-card">
+                    <div class="donations-metric-value"><?php echo intval($donations_count); ?></div>
+                    <div class="donations-metric-label">Número de Donaciones</div>
                 </div>
             </div>
 
             <!-- Donations Table -->
-            <table class="wp-list-table widefat fixed striped">
+            <table class="donations-module-table widefat fixed striped">
                 <thead>
                     <tr>
                         <th>ID</th>
                         <th>Cantidad</th>
                         <th>ID de Transacción</th>
+                        <th>Nombre del Donante</th>
+                        <th>Email del Donante</th>
+                        <th>Dirección del Donante</th>
                         <th>Fecha</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($donations as $donation) { ?>
+                    <?php foreach ($donations as $donation) { 
+                        $donor_address = isset($donation->donor_address) ? maybe_unserialize($donation->donor_address) : null;
+$formatted_address = '';
+if (!empty($donor_address)) {
+    if (is_array($donor_address)) {
+        $formatted_address = isset($donor_address['address_line_1']) ? esc_html($donor_address['address_line_1']) : '';
+        $formatted_address .= isset($donor_address['address_line_2']) ? ', ' . esc_html($donor_address['address_line_2']) : '';
+        $formatted_address .= isset($donor_address['admin_area_2']) ? ', ' . esc_html($donor_address['admin_area_2']) : '';
+        $formatted_address .= isset($donor_address['admin_area_1']) ? ', ' . esc_html($donor_address['admin_area_1']) : '';
+        $formatted_address .= isset($donor_address['postal_code']) ? ', ' . esc_html($donor_address['postal_code']) : '';
+        $formatted_address .= isset($donor_address['country_code']) ? ', ' . esc_html($donor_address['country_code']) : '';
+    } else {
+        $formatted_address = esc_html($donor_address);
+    }
+} else {
+    $formatted_address = 'N/A';
+}
+                    ?>
                         <tr>
                             <td><?php echo esc_html($donation->id); ?></td>
                             <td><?php echo esc_html(number_format($donation->amount, 2)); ?></td>
                             <td><?php echo esc_html($donation->transaction_id); ?></td>
+                            <td><?php echo esc_html($donation->donor_name); ?></td>
+                            <td><?php echo esc_html($donation->donor_email); ?></td>
+                            <td><?php echo $formatted_address; ?></td>
                             <td><?php echo esc_html($donation->created_at); ?></td>
                         </tr>
                     <?php } ?>
@@ -331,16 +600,17 @@ class Donations_Module {
             </table>
         </div>
         <style>
+            /* Scoped styles for donations list page */
             .donations-dashboard {
                 display: flex;
                 justify-content: space-between;
-                margin-bottom: 30px; /* Space between dashboard and table */
-                margin-top: 20px; /* Increased space between title and metrics cards */
+                margin-bottom: 30px;
+                margin-top: 20px;
             }
 
-            .metrics-card {
+            .donations-metrics-card {
                 background: #f8f9fa;
-                border: 1px solid #e9ecef; /* Consistent border with table */
+                border: 1px solid #e9ecef;
                 border-radius: 8px;
                 padding: 20px;
                 text-align: center;
@@ -348,19 +618,19 @@ class Donations_Module {
                 margin: 0 10px;
             }
 
-            .metrics-card .metric-value {
+            .donations-metric-value {
                 font-size: 2em;
                 font-weight: bold;
                 color: #333;
             }
 
-            .metrics-card .metric-label {
+            .donations-metric-label {
                 font-size: 1em;
                 color: #666;
                 margin-top: 10px;
             }
 
-            .progress {
+            .donations-progress {
                 margin-top: 15px;
                 background-color: #e9ecef;
                 border-radius: 8px;
@@ -369,32 +639,21 @@ class Donations_Module {
                 width: 100%;
             }
 
-            .progress-bar {
+            .donations-progress-bar {
                 height: 100%;
                 background-color: #28a745;
                 transition: width 0.4s ease;
             }
 
-            .wp-list-table {
-                border: 1px solid #e9ecef; /* Matching border with metrics cards */
+            .donations-module-table {
+                border: 1px solid #e9ecef;
                 border-radius: 8px;
                 width: 100%;
                 margin-top: 20px;
             }
 
-            .wp-list-table th, .wp-list-table td {
-                border: 1px solid #e9ecef; /* Consistent cell borders */
-            }
-
-            .form-table td input[type="text"], 
-            .form-table td input[type="number"], 
-            .form-table td textarea, 
-            .form-table td select {
-                border: 1px solid #e9ecef; /* Consistent border with other elements */
-                border-radius: 4px;
-                padding: 5px;
-                width: 100%;
-                max-width: 400px;
+            .donations-module-table th, .donations-module-table td {
+                border: 1px solid #e9ecef;
             }
         </style>
         <?php
@@ -423,12 +682,12 @@ class Donations_Module {
 
         ob_start();
         ?>
-        <div class="donations-module-wrapper" style="text-align: <?php echo $content_alignment; ?>; color: <?php echo $text_color; ?>; margin-left: 0; padding: 0 0 20px 0;"> <!-- Adjusted padding -->
+        <div class="donations-module-wrapper" style="text-align: <?php echo $content_alignment; ?>; color: <?php echo $text_color; ?>; padding: 20px 0;">
             <?php if ($show_cta_paragraph === '1'): ?>
-                <p class="cta-paragraph" style="margin-bottom: 20px;"><?php echo $cta_paragraph; ?></p>
+                <p class="donations-cta-paragraph" style="margin-bottom: 20px;"><?php echo $cta_paragraph; ?></p>
             <?php endif; ?>
 
-            <div class="donation-stats" style="margin-bottom: 10px; margin-top: 0;"> <!-- Reduced margin below and removed extra space -->
+            <div class="donations-stats" style="margin-bottom: 10px;">
                 <?php if ($show_amount_raised === '1'): ?>
                     <div>Total Recaudado: <strong><?php echo '$' . number_format($current_total, 2); ?></strong></div>
                 <?php endif; ?>
@@ -440,12 +699,10 @@ class Donations_Module {
                 <?php endif; ?>
             </div>
 
-            <div id="donation-progress-wrapper" style="margin: 15px 0 10px 0;">
-                <div id="donation-progress" style="background-color: <?php echo $progress_bar_well_color; ?>; width: <?php echo $progress_bar_well_width; ?>%; height: <?php echo $progress_bar_height; ?>px; border-radius: <?php echo $progress_bar_border_radius; ?>px; overflow: hidden;">
-                    <div id="progress-bar" style="width: <?php echo $progress; ?>%; background-color: <?php echo $progress_bar_color; ?>; height: 100%; border-radius: <?php echo $progress >= 100 ? $progress_bar_border_radius . 'px' : $progress_bar_border_radius . 'px 0 0 ' . $progress_bar_border_radius . 'px'; ?>;"></div>
-                </div>
-                <p id="donation-summary" style="margin-top: 5px; text-align: left;"><?php echo '$' . number_format($current_total, 0) . ' de $' . number_format($goal, 0); ?></p> <!-- Ensure closer alignment to the progress bar -->
+            <div id="donation-progress" class="donations-progress-wrapper" style="background-color: <?php echo esc_attr($progress_bar_well_color); ?>; width: 100%; height: <?php echo esc_attr($progress_bar_height); ?>px; border-radius: <?php echo esc_attr($progress_bar_border_radius); ?>px; overflow: hidden;">
+                <div id="progress-bar" class="donations-progress-bar" style="background-color: <?php echo esc_attr($progress_bar_color); ?>; height: 100%;"></div>
             </div>
+            <p id="donation-summary" style="margin-top: 5px; text-align: left;"><?php echo '$' . number_format($current_total, 0) . ' de $' . number_format($goal, 0); ?></p>
 
             <form id="donations-form" class="donations-form" onsubmit="return false;" aria-labelledby="donations-form-heading">
                 <input type="hidden" name="button_id" value="<?php echo esc_attr(get_option('paypal_hosted_button_id')); ?>">
@@ -457,27 +714,30 @@ class Donations_Module {
         <script>
             document.addEventListener('DOMContentLoaded', function() {
                 PayPal.Donation.Button({
-                    env: 'sandbox', // Change to 'production' when going live
+                    env: '<?php echo esc_js(get_option('paypal_environment', 'sandbox')); ?>',
                     hosted_button_id: '<?php echo esc_js(get_option('paypal_hosted_button_id')); ?>',
                     onComplete: function(data) {
-                        var donationData = {
-                            action: 'save_donation',
-                            donation_nonce: '<?php echo wp_create_nonce('save_donation'); ?>',
-                            transaction_id: data.tx,
-                            donation_amount: data.amt
-                        };
+                        console.log('onComplete callback triggered:', data);
+                        var donationData = new FormData();
+                        donationData.append('action', 'save_donation');
+                        donationData.append('donation_nonce', '<?php echo wp_create_nonce('save_donation'); ?>');
+                        donationData.append('transaction_id', data.tx);
+                        donationData.append('donation_amount', data.amt);
+
                         fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/x-www-form-urlencoded',
-                            },
-                            body: new URLSearchParams(donationData)
+                            body: donationData
+                            // Do not set Content-Type header; the browser will set it automatically
                         })
                         .then(response => response.json())
                         .then(data => {
                             if (data.success) {
                                 console.log('Donation saved successfully.');
-                                location.reload(); // Refresh the page to update values
+                                // Here we reload or refresh the values of the form
+                                document.getElementById('donation-summary').innerHTML = '<?php echo '$' . number_format($current_total, 0) . ' de $' . number_format($goal, 0); ?>';
+                                // Recalculate progress
+                                var newProgress = goal > 0 ? (<?php echo $current_total; ?> / goal) * 100 : 0;
+                                document.getElementById('progress-bar').style.width = newProgress + '%';
                             } else {
                                 console.error('Error saving donation:', data.message);
                             }
@@ -487,37 +747,48 @@ class Donations_Module {
                         });
                     }
                 }).render('#paypal-button-container');
+
+                var currentTotal = <?php echo $current_total; ?>;
+                var goal = <?php echo $goal; ?>;
+                var progress = goal > 0 ? (currentTotal / goal) * 100 : 0;
+                
+                var progressBar = document.getElementById('progress-bar');
+                progressBar.style.width = progress + '%';
+                
+                // Apply rounded corners only if progress is 100%
+                if (progress >= 100) {
+                    progressBar.style.borderRadius = '<?php echo esc_attr($progress_bar_border_radius); ?>px';
+                } else {
+                    progressBar.style.borderRadius = '<?php echo esc_attr($progress_bar_border_radius); ?>px 0 0 <?php echo esc_attr($progress_bar_border_radius); ?>px';
+                }
             });
         </script>
-
         <style>
-            .donations-module-wrapper {
-                max-width: 600px;
-                margin-left: 0; /* Align with the left edge */
-                padding: 0 0 20px 0; /* Adjusted padding */
-                background-color: inherit;
-                color: inherit;
+            /* Scoped styles for donation form */
+            .donations-module-wrapper .donations-cta-paragraph {
+                font-size: 1.2em;
+                margin-bottom: 20px;
             }
 
-            .donation-stats {
-                display: flex;
-                flex-direction: column;
-                gap: 5px; /* Reduced gap between lines */
-                text-align: left;
+            .donations-module-wrapper .donations-stats div {
+                font-size: 1em;
+                margin-bottom: 5px;
             }
 
-            #paypal-button-container {
-                text-align: left;
+            .donations-module-wrapper .donations-progress-wrapper {
+                margin-top: 10px;
             }
 
-            #donation-progress-wrapper {
-                margin-top: 0;
-                padding-top: 0;
+            .donations-module-wrapper #progress-bar {
+                transition: width 0.5s ease-in-out;
+                text-align: center;
+                color: #fff;
+                font-weight: bold;
+                line-height: <?php echo esc_attr($progress_bar_height); ?>px;
             }
 
-            #donation-summary {
+            .donations-module-wrapper #donation-summary {
                 margin-top: 5px;
-                text-align: left;
             }
         </style>
         <?php
@@ -542,15 +813,11 @@ class Donations_Module {
 
     // Method to save a donation via AJAX
     public function save_donation() {
-        // Log function trigger to confirm it's being called
-        error_log('save_donation function triggered');
-
         // Check and verify nonce
         if (
             !isset($_POST['donation_nonce']) ||
             !wp_verify_nonce($_POST['donation_nonce'], 'save_donation')
         ) {
-            error_log('Nonce verification failed');
             wp_send_json([
                 'success' => false,
                 'message' => 'Invalid security token.',
@@ -563,7 +830,6 @@ class Donations_Module {
         $amount = isset($_POST['donation_amount']) ? floatval($_POST['donation_amount']) : 0;
 
         if (empty($transaction_id) || $amount <= 0) {
-            error_log('Invalid transaction data');
             wp_send_json([
                 'success' => false,
                 'message' => 'Invalid donation data.',
@@ -578,12 +844,15 @@ class Donations_Module {
         $inserted = $wpdb->insert($table_name, [
             'transaction_id' => $transaction_id,
             'amount' => $amount,
+            'currency' => '', // Currency is not provided here
+            'donor_name' => '', // Donor name is not provided here
+            'donor_email' => '', // Donor email is not provided here
+            'donor_address' => '', // Donor address is not provided here
             'created_at' => current_time('mysql'),
         ]);
 
         // Check if insertion was successful
         if ($inserted === false) {
-            error_log('Database insertion failed: ' . $wpdb->last_error);
             wp_send_json([
                 'success' => false,
                 'message' => 'Failed to save donation.',
@@ -602,3 +871,10 @@ class Donations_Module {
         ]);
     }
 }
+
+// Initialize the plugin
+Donations_Module::init();
+
+// Register activation and deactivation hooks
+register_activation_hook(__FILE__, ['Donations_Module', 'activate']);
+register_deactivation_hook(__FILE__, ['Donations_Module', 'deactivate']);
